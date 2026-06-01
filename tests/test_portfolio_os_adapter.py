@@ -173,6 +173,22 @@ def test_validate_bundle_command_accepts_valid_bundle(tmp_path: Path) -> None:
     assert validate_bundle_file(path) == []
 
 
+def test_bin_wrapper_accepts_portfolio_os_namespace(tmp_path: Path) -> None:
+    repo = _init_target_repo(tmp_path)
+    path = _write_bundle(tmp_path, repo)
+    hermes_bin = Path(__file__).resolve().parent.parent / "bin" / "hermes"
+
+    proc = subprocess.run(
+        [str(hermes_bin), "portfolio-os", "validate-bundle", "--bundle", str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert "bundle_status=valid" in proc.stdout
+
+
 def test_destructive_operation_is_refused(tmp_path: Path) -> None:
     repo = _init_target_repo(tmp_path)
     bundle = _bundle(tmp_path, repo)

@@ -72,6 +72,9 @@ def cmd_resume(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "portfolio-os":
+        argv = argv[1:]
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
