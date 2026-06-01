@@ -90,7 +90,19 @@ def _normalize_command_for_detection(command: str) -> str:
     null bytes, and normalizes Unicode fullwidth characters so that
     obfuscation techniques cannot bypass the pattern-based detection.
     """
-    from tools.ansi_strip import strip_ansi
+    try:
+        from tools.ansi_strip import strip_ansi
+    except ModuleNotFoundError:
+        import importlib.util
+        from pathlib import Path
+
+        ansi_path = Path(__file__).resolve().with_name("ansi_strip.py")
+        spec = importlib.util.spec_from_file_location("_hermes_ansi_strip", ansi_path)
+        if spec is None or spec.loader is None:
+            raise
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        strip_ansi = module.strip_ansi
 
     # Strip all ANSI escape sequences (CSI, OSC, DCS, 8-bit C1, etc.)
     command = strip_ansi(command)

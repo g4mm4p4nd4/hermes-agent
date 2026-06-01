@@ -1,0 +1,60 @@
+preserve:
+  paperclip_adapter:
+    files:
+      - external boundary: /Users/mnm/Documents/Github/hermes-paperclip-adapter
+    commands: []
+    behaviors:
+      - Preserve external Paperclip adapter behavior; do not replace it with core Hermes assumptions.
+      - Keep Paperclip skill/runtime synchronization additive and compatibility-oriented.
+    tests:
+      - Paperclip adapter behavior must continue to validate outside this core repo when available.
+  portfolio_os_adapter:
+    files:
+      - portfolio_os_adapter/**
+      - bin/hermes
+      - docs/portfolio_os/**
+    commands:
+      - ./bin/hermes portfolio-os validate-bundle --bundle <bundle>
+      - ./bin/hermes portfolio-os dry-run --bundle <bundle>
+      - ./bin/hermes portfolio-os dispatch --bundle <bundle>
+      - ./bin/hermes portfolio-os status --run-id <run_id>
+      - ./bin/hermes portfolio-os resume --run-id <run_id>
+    behaviors:
+      - Validate pos.hermes_task_bundle.v1.
+      - Dry-run without target repo mutation.
+      - Dispatch docs-first validation sprint assets when safe.
+      - Refuse destructive operations and secret-like content.
+      - Write result artifacts back to Portfolio-OS.
+    tests:
+      - tests/test_portfolio_os_adapter.py
+  local_modifications:
+    files: []
+    reason: "No local modifications existed at baseline before this adapter branch."
+  execution_runtime:
+    files:
+      - portfolio_os_adapter/runtime.py
+      - tools/terminal_tool.py
+      - tools/file_tools.py
+    behaviors:
+      - Target repo mutation happens only inside the selected target repo.
+      - Docs-only validation sprints are valid when code changes are unsafe.
+  approval_flow:
+    files:
+      - tools/approval.py
+      - acp_adapter/permissions.py
+      - gateway/run.py
+    behaviors:
+      - Existing dangerous-command approval patterns remain unchanged.
+      - Portfolio-OS adapter refuses destructive operations before command execution.
+  gateway_integrations:
+    files:
+      - gateway/**
+      - gateway/platforms/**
+    behaviors:
+      - No gateway platform behavior is changed by the Portfolio-OS adapter.
+
+migration_policy:
+  prefer_official_feature_when_equivalent: true
+  preserve_local_behavior_when_official_missing: true
+  wrap_in_adapter_if_conflict: true
+  no_feature_loss_without_explicit_note: true

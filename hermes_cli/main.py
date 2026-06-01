@@ -3099,6 +3099,11 @@ def _coalesce_session_name_args(argv: list) -> list:
 
 def main():
     """Main entry point for hermes CLI."""
+    if len(sys.argv) > 1 and sys.argv[1] == "portfolio-os":
+        from portfolio_os_adapter.cli import main as portfolio_os_main
+
+        raise SystemExit(portfolio_os_main(sys.argv[2:]))
+
     parser = argparse.ArgumentParser(
         prog="hermes",
         description="Hermes Agent - AI assistant with tool-calling capabilities",
