@@ -533,6 +533,7 @@ def cmd_chat(args):
         "worktree": getattr(args, "worktree", False),
         "checkpoints": getattr(args, "checkpoints", False),
         "pass_session_id": getattr(args, "pass_session_id", False),
+        "disable_fallback_model": getattr(args, "disable_fallback_model", False),
     }
     # Filter out None values
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
@@ -3272,6 +3273,12 @@ For more help on a command:
         action="store_true",
         default=False,
         help="Include the session ID in the agent's system prompt"
+    )
+    chat_parser.add_argument(
+        "--disable-fallback-model",
+        action="store_true",
+        default=False,
+        help="Ignore configured fallback_model for this chat process"
     )
     chat_parser.add_argument(
         "--source",

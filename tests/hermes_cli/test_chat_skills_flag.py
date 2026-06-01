@@ -49,6 +49,30 @@ def test_chat_subcommand_accepts_skills_flag(monkeypatch):
     }
 
 
+def test_chat_subcommand_accepts_disable_fallback_model(monkeypatch):
+    import hermes_cli.main as main_mod
+
+    captured = {}
+
+    def fake_cmd_chat(args):
+        captured["disable_fallback_model"] = args.disable_fallback_model
+        captured["query"] = args.query
+
+    monkeypatch.setattr(main_mod, "cmd_chat", fake_cmd_chat)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["hermes", "chat", "--disable-fallback-model", "-q", "hello"],
+    )
+
+    main_mod.main()
+
+    assert captured == {
+        "disable_fallback_model": True,
+        "query": "hello",
+    }
+
+
 def test_continue_worktree_and_skills_flags_work_together(monkeypatch):
     import hermes_cli.main as main_mod
 

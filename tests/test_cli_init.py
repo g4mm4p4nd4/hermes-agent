@@ -85,6 +85,48 @@ class TestMaxTurnsResolution:
         assert isinstance(cli.max_turns, int) and cli.max_turns == 90
 
 
+class TestFallbackModelDisable:
+    def test_configured_fallback_model_is_loaded_by_default(self):
+        cli = _make_cli(
+            config_overrides={
+                "fallback_model": {
+                    "provider": "opencode-zen",
+                    "model": "deepseek-v4-flash-free",
+                },
+            },
+        )
+        assert cli._fallback_model == {
+            "provider": "opencode-zen",
+            "model": "deepseek-v4-flash-free",
+        }
+
+    def test_constructor_can_disable_configured_fallback_model(self):
+        cli = _make_cli(
+            disable_fallback_model=True,
+            config_overrides={
+                "fallback_model": {
+                    "provider": "opencode-zen",
+                    "model": "deepseek-v4-flash-free",
+                },
+            },
+        )
+        assert cli.disable_fallback_model is True
+        assert cli._fallback_model is None
+
+    def test_env_can_disable_configured_fallback_model(self):
+        cli = _make_cli(
+            env_overrides={"HERMES_DISABLE_FALLBACK_MODEL": "1"},
+            config_overrides={
+                "fallback_model": {
+                    "provider": "opencode-zen",
+                    "model": "deepseek-v4-flash-free",
+                },
+            },
+        )
+        assert cli.disable_fallback_model is True
+        assert cli._fallback_model is None
+
+
 class TestVerboseAndToolProgress:
     def test_default_verbose_is_bool(self):
         cli = _make_cli()

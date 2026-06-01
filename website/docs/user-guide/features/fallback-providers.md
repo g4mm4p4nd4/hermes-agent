@@ -132,7 +132,7 @@ fallback_model:
 | Auxiliary tasks (vision, compression) | ✘ (use their own provider chain — see below) |
 
 :::tip
-There are no environment variables for `fallback_model` — it is configured exclusively through `config.yaml`. This is intentional: fallback configuration is a deliberate choice, not something a stale shell export should override.
+`fallback_model` is configured exclusively through `config.yaml`. For one-off orchestration processes that must fail fast instead of switching providers, run `hermes chat --disable-fallback-model` or set `HERMES_DISABLE_FALLBACK_MODEL=1` for that process.
 :::
 
 ---

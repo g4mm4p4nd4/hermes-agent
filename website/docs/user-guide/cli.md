@@ -24,6 +24,9 @@ hermes chat --model "anthropic/claude-sonnet-4"
 hermes chat --provider nous        # Use Nous Portal
 hermes chat --provider openrouter  # Force OpenRouter
 
+# Disable the configured fallback_model for this process
+hermes chat --disable-fallback-model -q "Use the selected provider only"
+
 # With specific toolsets
 hermes chat --toolsets "web,terminal,skills"
 

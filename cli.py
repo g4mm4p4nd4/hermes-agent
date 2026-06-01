@@ -1014,6 +1014,7 @@ class HermesCLI:
         resume: str = None,
         checkpoints: bool = False,
         pass_session_id: bool = False,
+        disable_fallback_model: bool = False,
     ):
         """
         Initialize the Hermes CLI.
@@ -1029,6 +1030,7 @@ class HermesCLI:
             compact: Use compact display mode
             resume: Session ID to resume (restores conversation history from SQLite)
             pass_session_id: Include the session ID in the agent's system prompt
+            disable_fallback_model: Ignore configured fallback_model for this process
         """
         # Initialize Rich console
         self.console = Console()
@@ -1166,8 +1168,17 @@ class HermesCLI:
         self._provider_data_collection = pr.get("data_collection")
         
         # Fallback model config — tried when primary provider fails after retries
+        disable_fallback_from_env = os.getenv("HERMES_DISABLE_FALLBACK_MODEL", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.disable_fallback_model = disable_fallback_model or disable_fallback_from_env
         fb = CLI_CONFIG.get("fallback_model") or {}
-        self._fallback_model = fb if fb.get("provider") and fb.get("model") else None
+        self._fallback_model = (
+            None if self.disable_fallback_model else fb if fb.get("provider") and fb.get("model") else None
+        )
 
         # Optional cheap-vs-strong routing for simple turns
         self._smart_model_routing = CLI_CONFIG.get("smart_model_routing", {}) or {}
@@ -7200,6 +7211,7 @@ def main(
     w: bool = False,
     checkpoints: bool = False,
     pass_session_id: bool = False,
+    disable_fallback_model: bool = False,
 ):
     """
     Hermes Agent CLI - Interactive AI Assistant
@@ -7221,6 +7233,7 @@ def main(
         resume: Resume a previous session by its ID (e.g., 20260225_143052_a1b2c3)
         worktree: Run in an isolated git worktree (for parallel agents). Alias: -w
         w: Shorthand for --worktree
+        disable_fallback_model: Ignore configured fallback_model for this process
     
     Examples:
         python cli.py                            # Start interactive mode
@@ -7307,6 +7320,7 @@ def main(
         resume=resume,
         checkpoints=checkpoints,
         pass_session_id=pass_session_id,
+        disable_fallback_model=disable_fallback_model,
     )
 
     if parsed_skills:
