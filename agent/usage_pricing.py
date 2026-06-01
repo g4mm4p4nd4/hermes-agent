@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any, Dict, Literal, Optional
 
 from agent.model_metadata import fetch_endpoint_model_metadata, fetch_model_metadata
+from agent.models_dev import PROVIDER_TO_MODELS_DEV, fetch_models_dev
 
 DEFAULT_PRICING = {"input": 0.0, "output": 0.0}
 
@@ -18,6 +19,7 @@ CostSource = Literal[
     "provider_generation_api",
     "provider_models_api",
     "official_docs_snapshot",
+    "models_dev_registry",
     "user_override",
     "custom_contract",
     "none",
@@ -313,7 +315,7 @@ def resolve_billing_route(
     model = (model_name or "").strip()
     if not provider_name and "/" in model:
         inferred_provider, bare_model = model.split("/", 1)
-        if inferred_provider in {"anthropic", "openai", "google"}:
+        if inferred_provider in {"anthropic", "openai", "google", "opencode-go", "opencode-zen"}:
             provider_name = inferred_provider
             model = bare_model
 
@@ -340,6 +342,55 @@ def _openrouter_pricing_entry(route: BillingRoute) -> Optional[PricingEntry]:
         route.model,
         source_url="https://openrouter.ai/docs/api/api-reference/models/get-models",
         pricing_version="openrouter-models-api",
+    )
+
+
+def _models_dev_pricing_entry(route: BillingRoute) -> Optional[PricingEntry]:
+    provider_id = PROVIDER_TO_MODELS_DEV.get(route.provider)
+    if not provider_id:
+        return None
+
+    provider_data = fetch_models_dev().get(provider_id)
+    if not isinstance(provider_data, dict):
+        return None
+    models = provider_data.get("models", {})
+    if not isinstance(models, dict):
+        return None
+
+    model_key = route.model
+    prefix = f"{route.provider}/"
+    if model_key.lower().startswith(prefix):
+        model_key = model_key.split("/", 1)[1]
+
+    model_entry = models.get(model_key)
+    if model_entry is None:
+        model_lower = model_key.lower()
+        for model_id, candidate in models.items():
+            if str(model_id).lower() == model_lower:
+                model_entry = candidate
+                break
+    if not isinstance(model_entry, dict):
+        return None
+
+    cost = model_entry.get("cost")
+    if not isinstance(cost, dict):
+        return None
+    input_cost = _to_decimal(cost.get("input"))
+    output_cost = _to_decimal(cost.get("output"))
+    cache_read = _to_decimal(cost.get("cache_read"))
+    cache_write = _to_decimal(cost.get("cache_write"))
+    if input_cost is None and output_cost is None:
+        return None
+
+    return PricingEntry(
+        input_cost_per_million=input_cost,
+        output_cost_per_million=output_cost,
+        cache_read_cost_per_million=cache_read,
+        cache_write_cost_per_million=cache_write,
+        source="models_dev_registry",
+        source_url="https://models.dev/api.json",
+        pricing_version=f"models.dev:{provider_id}",
+        fetched_at=_UTC_NOW(),
     )
 
 
@@ -414,7 +465,10 @@ def get_pricing_entry(
         )
         if entry:
             return entry
-    return _lookup_official_docs_pricing(route)
+    official_entry = _lookup_official_docs_pricing(route)
+    if official_entry:
+        return official_entry
+    return _models_dev_pricing_entry(route)
 
 
 def normalize_usage(

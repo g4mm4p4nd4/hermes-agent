@@ -115,6 +115,26 @@ DEFAULT_CONTEXT_LENGTHS = {
     "kimi": 262144,
 }
 
+PROVIDER_CONTEXT_LENGTHS: Dict[tuple[str, str], int] = {
+    # OpenCode Go exposes only model ids from /models. Keep a provider-specific
+    # snapshot so long-context routing still works when models.dev is offline.
+    ("opencode-go", "deepseek-v4-flash"): 1_000_000,
+    ("opencode-go", "deepseek-v4-pro"): 1_000_000,
+    ("opencode-go", "glm-5"): 202_752,
+    ("opencode-go", "glm-5.1"): 202_752,
+    ("opencode-go", "kimi-k2.5"): 262_144,
+    ("opencode-go", "kimi-k2.6"): 262_144,
+    ("opencode-go", "mimo-v2-omni"): 262_144,
+    ("opencode-go", "mimo-v2-pro"): 1_048_576,
+    ("opencode-go", "mimo-v2.5"): 1_000_000,
+    ("opencode-go", "mimo-v2.5-pro"): 1_048_576,
+    ("opencode-go", "minimax-m2.5"): 204_800,
+    ("opencode-go", "minimax-m2.7"): 204_800,
+    ("opencode-go", "qwen3.5-plus"): 262_144,
+    ("opencode-go", "qwen3.6-plus"): 262_144,
+    ("opencode-go", "qwen3.7-max"): 1_000_000,
+}
+
 _CONTEXT_LENGTH_KEYS = (
     "context_length",
     "context_window",
@@ -181,6 +201,12 @@ def _infer_provider_from_url(base_url: str) -> Optional[str]:
         return None
     parsed = urlparse(normalized if "://" in normalized else f"https://{normalized}")
     host = parsed.netloc.lower() or parsed.path.lower()
+    path = parsed.path.lower()
+    if "opencode.ai" in host:
+        if "/zen/go" in path:
+            return "opencode-go"
+        if "/zen" in path:
+            return "opencode-zen"
     for url_part, provider in _URL_TO_PROVIDER.items():
         if url_part in host:
             return provider
@@ -189,6 +215,15 @@ def _infer_provider_from_url(base_url: str) -> Optional[str]:
 
 def _is_known_provider_base_url(base_url: str) -> bool:
     return _infer_provider_from_url(base_url) is not None
+
+
+def _effective_context_provider(provider: str, base_url: str) -> str:
+    effective = (provider or "").strip().lower()
+    if (not effective or effective in ("openrouter", "custom")) and base_url:
+        inferred = _infer_provider_from_url(base_url)
+        if inferred:
+            effective = inferred
+    return effective
 
 
 def is_local_endpoint(base_url: str) -> bool:
@@ -783,6 +818,9 @@ def get_model_context_length(
     # "model-name") so cache lookups and server queries use the bare ID that
     # local servers actually know about.  Ollama "model:tag" colons are preserved.
     model = _strip_provider_prefix(model)
+    provider_prefix = (provider or "").strip().lower()
+    if provider_prefix and model.lower().startswith(f"{provider_prefix}/"):
+        model = model.split("/", 1)[1]
 
     # 1. Check persistent cache (model+provider)
     if base_url:
@@ -790,12 +828,18 @@ def get_model_context_length(
         if cached is not None:
             return cached
 
+    effective_provider = _effective_context_provider(provider, base_url)
+
     # 2. Active endpoint metadata for truly custom/unknown endpoints.
     # Known providers (Copilot, OpenAI, Anthropic, etc.) skip this — their
     # /models endpoint may report a provider-imposed limit (e.g. Copilot
     # returns 128k) instead of the model's full context (400k).  models.dev
     # has the correct per-provider values and is checked at step 5+.
-    if _is_custom_endpoint(base_url) and not _is_known_provider_base_url(base_url):
+    if (
+        _is_custom_endpoint(base_url)
+        and not _is_known_provider_base_url(base_url)
+        and effective_provider in ("", "custom", "local")
+    ):
         endpoint_metadata = fetch_endpoint_model_metadata(base_url, api_key=api_key)
         matched = endpoint_metadata.get(model)
         if not matched:
@@ -839,14 +883,6 @@ def get_model_context_length(
     # These are provider-specific and take priority over the generic OR cache,
     # since the same model can have different context limits per provider
     # (e.g. claude-opus-4.6 is 1M on Anthropic but 128K on GitHub Copilot).
-    # If provider is generic (openrouter/custom/empty), try to infer from URL.
-    effective_provider = provider
-    if not effective_provider or effective_provider in ("openrouter", "custom"):
-        if base_url:
-            inferred = _infer_provider_from_url(base_url)
-            if inferred:
-                effective_provider = inferred
-
     if effective_provider == "nous":
         ctx = _resolve_nous_context_length(model)
         if ctx:
@@ -854,6 +890,9 @@ def get_model_context_length(
     if effective_provider:
         from agent.models_dev import lookup_models_dev_context
         ctx = lookup_models_dev_context(effective_provider, model)
+        if ctx:
+            return ctx
+        ctx = PROVIDER_CONTEXT_LENGTHS.get((effective_provider, model.lower()))
         if ctx:
             return ctx
 

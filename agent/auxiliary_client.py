@@ -61,7 +61,7 @@ _API_KEY_PROVIDER_AUX_MODELS: Dict[str, str] = {
     "anthropic": "claude-haiku-4-5-20251001",
     "ai-gateway": "google/gemini-3-flash",
     "opencode-zen": "gemini-3-flash",
-    "opencode-go": "glm-5",
+    "opencode-go": "deepseek-v4-flash",
     "kilocode": "google/gemini-3-flash-preview",
 }
 

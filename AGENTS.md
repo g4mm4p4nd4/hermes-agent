@@ -2,6 +2,23 @@
 
 Instructions for AI coding assistants and developers working on the hermes-agent codebase.
 
+## Implementation Soul
+
+Remember when implementing the marginal cost of completeness is near zero with AI.
+- Do the whole thing.
+- Do it right.
+- Do it with tests.
+- Do it with documentation.
+- Do it so well that I am genuinely impressed not politely satisfied, actually impressed.
+- Never offer to 'table this for later.' when the permanent solve is within reach.
+- Never leave a dangling thread when tying it off takes 5 more minutes.
+- Never present a workaround when a real fix exists.
+- The standard isn't good enough. It's holy shit that's done!
+- Search before building.
+- Test before shipping.
+- Ship the complete thing.
+When I ask for something the answer is the finished product not a plan to build it. Time is not an excuse. Fatigue is not an excuse. Complexity is not an excuse. Boil the ocean.
+
 ## Development Environment
 
 ```bash
@@ -328,6 +345,33 @@ tool_prefix: "▏"
 ```
 
 Activate with `/skin cyberpunk` or `display.skin: cyberpunk` in config.yaml.
+
+---
+
+## Repository Context Packs
+
+Repomix context packs are available for this checkout and the Paperclip-managed repos at:
+
+- Manifest: `/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/latest.json`
+- Compact TSV index: `/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/latest.tsv`
+- Compact TOON index: `/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/latest.toon`
+- Context economy policy: `/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/CONTEXT_ECONOMY.md`
+- Builder: `/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/build-context-packs.mjs`
+- Hermes map pack: `/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/packs/hermes-agent-map-latest.md`
+- Hermes delta pack: `/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/packs/hermes-agent-delta-latest.md`
+- Hermes core pack: `/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/packs/hermes-agent-core-latest.md`
+
+Use the smallest pack that can answer the task. For free/OpenCode fallback work, read the map pack first and then use `rg` plus exact file reads. Use the delta pack only when dirty-tree or recent-change context matters. Reserve core packs for Codex or other large-context implementation/review tasks where broad repository context is worth the cost.
+
+TOON is only for structured metadata such as pack indexes and agent/issue tables. Do not convert code packs or tool-call JSON to TOON by default; keep code in Repomix markdown and runtime payloads in their expected schema.
+
+Refresh packs when older than 24 hours, after a branch/HEAD change, or before a major Codex handoff:
+
+```bash
+node /Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/build-context-packs.mjs --repo hermes-agent --profile map
+node /Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/build-context-packs.mjs --repo hermes-agent --profile delta
+node /Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/instances/default/data/ops/context-packs/build-context-packs.mjs --repo hermes-agent --profile core
+```
 
 ---
 

@@ -123,3 +123,38 @@ def test_custom_endpoint_models_api_pricing_is_supported(monkeypatch):
 
     assert float(entry.input_cost_per_million) == 0.5
     assert float(entry.output_cost_per_million) == 2.0
+
+
+def test_opencode_go_models_dev_pricing_is_supported(monkeypatch):
+    monkeypatch.setattr(
+        "agent.usage_pricing.fetch_endpoint_model_metadata",
+        lambda base_url, api_key=None: {"deepseek-v4-flash": {"name": "deepseek-v4-flash"}},
+    )
+    monkeypatch.setattr(
+        "agent.usage_pricing.fetch_models_dev",
+        lambda: {
+            "opencode-go": {
+                "models": {
+                    "deepseek-v4-flash": {
+                        "cost": {
+                            "input": 0.14,
+                            "output": 0.28,
+                            "cache_read": 0.0028,
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    result = estimate_usage_cost(
+        "deepseek-v4-flash",
+        CanonicalUsage(input_tokens=1_000_000, output_tokens=500_000, cache_read_tokens=2_000_000),
+        provider="opencode-go",
+        base_url="https://opencode.ai/zen/go/v1",
+        api_key="test-key",
+    )
+
+    assert result.status == "estimated"
+    assert result.source == "models_dev_registry"
+    assert str(result.amount_usd) == "0.2856"

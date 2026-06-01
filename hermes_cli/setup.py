@@ -78,8 +78,11 @@ _DEFAULT_PROVIDER_MODELS = {
     "kimi-coding": ["kimi-k2.5", "kimi-k2-thinking", "kimi-k2-turbo-preview"],
     "minimax": ["MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
     "minimax-cn": ["MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
+    "opencode-zen": ["deepseek-v4-flash-free", "mimo-v2.5-free", "nemotron-3-super-free", "big-pickle", "gpt-5.4", "claude-sonnet-4-6"],
+    "opencode-go": ["deepseek-v4-flash", "deepseek-v4-pro", "qwen3.7-max", "mimo-v2.5", "qwen3.5-plus"],
     "ai-gateway": ["anthropic/claude-opus-4.6", "anthropic/claude-sonnet-4.6", "openai/gpt-5", "google/gemini-3-flash"],
     "kilocode": ["anthropic/claude-opus-4.6", "anthropic/claude-sonnet-4.6", "openai/gpt-5.4", "google/gemini-3-pro-preview", "google/gemini-3-flash-preview"],
+    "alibaba": ["qwen3.5-plus", "qwen3-max", "qwen3-coder-plus", "qwen-plus-latest"],
 }
 
 

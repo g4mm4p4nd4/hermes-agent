@@ -30,6 +30,8 @@ class TestFlushDeduplication:
             from run_agent import AIAgent
             agent = AIAgent(
                 model="test/model",
+                api_key="test-key",
+                base_url="https://openrouter.ai/api/v1",
                 quiet_mode=True,
                 session_db=session_db,
                 session_id="test-session-860",
@@ -162,6 +164,40 @@ class TestFlushDeduplication:
             old_rows = db.get_messages(old_session)
             assert len(old_rows) == 2
 
+    def test_cli_integrations_can_tag_session_source(self):
+        """HERMES_SESSION_SOURCE should distinguish Paperclip runs from CLI use."""
+        from hermes_state import SessionDB
+        from run_agent import AIAgent
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            db = SessionDB(db_path=db_path)
+
+            with patch.dict(
+                os.environ,
+                {
+                    "OPENROUTER_API_KEY": "test-key",
+                    "HERMES_SESSION_SOURCE": "paperclip",
+                },
+            ):
+                AIAgent(
+                    model="test/model",
+                    api_key="test-key",
+                    base_url="https://openrouter.ai/api/v1",
+                    quiet_mode=True,
+                    platform="cli",
+                    session_db=db,
+                    session_id="paperclip-source-session",
+                    skip_context_files=True,
+                    skip_memory=True,
+                )
+
+            row = db._conn.execute(
+                "SELECT source FROM sessions WHERE id = ?",
+                ("paperclip-source-session",),
+            ).fetchone()
+            assert row[0] == "paperclip"
+
 
 # ---------------------------------------------------------------------------
 # Test: append_to_transcript skip_db parameter
@@ -272,6 +308,8 @@ class TestFlushIdxInit:
             from run_agent import AIAgent
             agent = AIAgent(
                 model="test/model",
+                api_key="test-key",
+                base_url="https://openrouter.ai/api/v1",
                 quiet_mode=True,
                 skip_context_files=True,
                 skip_memory=True,
@@ -284,6 +322,8 @@ class TestFlushIdxInit:
             from run_agent import AIAgent
             agent = AIAgent(
                 model="test/model",
+                api_key="test-key",
+                base_url="https://openrouter.ai/api/v1",
                 quiet_mode=True,
                 skip_context_files=True,
                 skip_memory=True,

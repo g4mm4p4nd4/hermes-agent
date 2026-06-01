@@ -1301,12 +1301,16 @@ _FALLBACK_COMMENT = """
 #   kimi-coding  (KIMI_API_KEY)        — Kimi / Moonshot
 #   minimax      (MINIMAX_API_KEY)     — MiniMax
 #   minimax-cn   (MINIMAX_CN_API_KEY)  — MiniMax (China)
+#   opencode-zen (OPENCODE_ZEN_API_KEY) — OpenCode Zen
+#   opencode-go  (OPENCODE_GO_API_KEY) — OpenCode Go
+#   ai-gateway   (AI_GATEWAY_API_KEY)  — AI Gateway
+#   alibaba      (DASHSCOPE_API_KEY)   — Alibaba DashScope
 #
 # For custom OpenAI-compatible endpoints, add base_url and api_key_env.
 #
 # fallback_model:
-#   provider: openrouter
-#   model: anthropic/claude-sonnet-4
+#   provider: opencode-zen
+#   model: deepseek-v4-flash-free
 #
 # ── Smart Model Routing ────────────────────────────────────────────────
 # Optional cheap-vs-strong routing for simple turns.

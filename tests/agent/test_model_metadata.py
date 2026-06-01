@@ -259,6 +259,57 @@ class TestGetModelContextLength:
 
         assert result == 131072
 
+    @patch("agent.models_dev.fetch_models_dev")
+    @patch("agent.model_metadata.fetch_endpoint_model_metadata")
+    @patch("agent.model_metadata.fetch_model_metadata")
+    def test_opencode_go_context_uses_provider_metadata_not_id_only_endpoint(
+        self,
+        mock_fetch,
+        mock_endpoint_fetch,
+        mock_models_dev,
+    ):
+        """OpenCode Go /models returns ids only; models.dev carries context limits."""
+        mock_fetch.return_value = {}
+        mock_endpoint_fetch.return_value = {
+            "qwen3.7-max": {"name": "qwen3.7-max"},
+        }
+        mock_models_dev.return_value = {
+            "opencode-go": {
+                "models": {
+                    "qwen3.7-max": {
+                        "limit": {"context": 1000000, "output": 65536},
+                    },
+                },
+            },
+        }
+
+        result = get_model_context_length(
+            "qwen3.7-max",
+            base_url="https://opencode.ai/zen/go/v1",
+            provider="opencode-go",
+        )
+
+        assert result == 1_000_000
+        mock_endpoint_fetch.assert_not_called()
+
+    @patch("agent.models_dev.fetch_models_dev")
+    @patch("agent.model_metadata.fetch_model_metadata")
+    def test_opencode_go_context_has_static_snapshot_when_models_dev_unavailable(
+        self,
+        mock_fetch,
+        mock_models_dev,
+    ):
+        mock_fetch.return_value = {}
+        mock_models_dev.return_value = {}
+
+        result = get_model_context_length(
+            "deepseek-v4-pro",
+            base_url="https://opencode.ai/zen/go/v1",
+            provider="opencode-go",
+        )
+
+        assert result == 1_000_000
+
     @patch("agent.model_metadata.fetch_model_metadata")
     def test_config_context_length_overrides_all(self, mock_fetch):
         """Explicit config_context_length takes priority over everything."""

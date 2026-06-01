@@ -883,7 +883,7 @@ class AIAgent:
             try:
                 self._session_db.create_session(
                     session_id=self.session_id,
-                    source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                    source=self._session_source(),
                     model=self.model,
                     model_config={
                         "max_iterations": self.max_iterations,
@@ -1590,7 +1590,7 @@ class AIAgent:
             # IGNORE so it is a no-op when the row is already there.
             self._session_db.ensure_session(
                 self.session_id,
-                source=self.platform or "cli",
+                source=self._session_source(),
                 model=self.model,
             )
             start_idx = len(conversation_history) if conversation_history else 0
@@ -3663,6 +3663,18 @@ class AIAgent:
             except Exception:
                 pass
 
+    def _session_source(self) -> str:
+        """Return the persisted session source without changing runtime platform.
+
+        CLI integrations such as Paperclip invoke Hermes through the CLI but set
+        HERMES_SESSION_SOURCE so analytics can separate automated agent traffic
+        from interactive terminal use.
+        """
+        env_source = os.environ.get("HERMES_SESSION_SOURCE", "").strip()
+        if env_source and (not self.platform or self.platform == "cli"):
+            return env_source
+        return self.platform or env_source or "cli"
+
     def _fire_tool_gen_started(self, tool_name: str) -> None:
         """Notify display layer that the model is generating tool call arguments.
 
@@ -4859,7 +4871,7 @@ class AIAgent:
                 self.session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
                 self._session_db.create_session(
                     session_id=self.session_id,
-                    source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                    source=self._session_source(),
                     model=self.model,
                     parent_session_id=old_session_id,
                 )

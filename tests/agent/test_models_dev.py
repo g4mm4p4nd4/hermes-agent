@@ -60,6 +60,20 @@ SAMPLE_REGISTRY = {
             },
         },
     },
+    "opencode-go": {
+        "id": "opencode-go",
+        "name": "OpenCode Go",
+        "models": {
+            "deepseek-v4-pro": {
+                "id": "deepseek-v4-pro",
+                "limit": {"context": 1000000, "output": 384000},
+            },
+            "qwen3.7-max": {
+                "id": "qwen3.7-max",
+                "limit": {"context": 1000000, "output": 65536},
+            },
+        },
+    },
     "audio-only": {
         "id": "audio-only",
         "models": {
@@ -83,6 +97,7 @@ class TestProviderMapping:
         assert PROVIDER_TO_MODELS_DEV["copilot"] == "github-copilot"
         assert PROVIDER_TO_MODELS_DEV["kilocode"] == "kilo"
         assert PROVIDER_TO_MODELS_DEV["ai-gateway"] == "vercel"
+        assert PROVIDER_TO_MODELS_DEV["opencode-go"] == "opencode-go"
 
     def test_unmapped_provider_not_in_dict(self):
         assert "nous" not in PROVIDER_TO_MODELS_DEV
@@ -138,6 +153,8 @@ class TestLookupModelsDevContext:
         assert lookup_models_dev_context("anthropic", "claude-opus-4-6") == 1000000
         # GitHub Copilot: only 128K for same model
         assert lookup_models_dev_context("copilot", "claude-opus-4.6") == 128000
+        # OpenCode Go long-context models are provider-specific too.
+        assert lookup_models_dev_context("opencode-go", "qwen3.7-max") == 1000000
 
     @patch("agent.models_dev.fetch_models_dev")
     def test_zero_context_filtered(self, mock_fetch):
