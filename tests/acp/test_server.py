@@ -68,6 +68,19 @@ class TestInitialize:
         assert caps.session_capabilities.fork is not None
         assert caps.session_capabilities.list is not None
 
+    @pytest.mark.asyncio
+    async def test_initialize_advertises_configured_provider_auth_method(self, agent, monkeypatch):
+        monkeypatch.setattr(
+            "acp_adapter.server.detect_provider",
+            lambda: "openrouter",
+        )
+        resp = await agent.initialize(protocol_version=1)
+        assert resp.auth_methods is not None
+        assert len(resp.auth_methods) == 1
+        method = resp.auth_methods[0]
+        assert method.id == "openrouter"
+        assert method.name == "openrouter runtime credentials"
+
 
 # ---------------------------------------------------------------------------
 # authenticate
