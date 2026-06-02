@@ -1559,7 +1559,6 @@ _PROVIDER_MODELS = {
         "minimax-m2.7",
         "qwen3.5-plus",
         "qwen3.6-plus",
-        "qwen3.7-max",
         "hy3-preview",
     ],
     "ai-gateway": [

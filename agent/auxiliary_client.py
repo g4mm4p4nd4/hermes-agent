@@ -65,6 +65,28 @@ _API_KEY_PROVIDER_AUX_MODELS: Dict[str, str] = {
     "kilocode": "google/gemini-3-flash-preview",
 }
 
+_PROVIDER_MODEL_COMPATIBILITY_ALIASES: Dict[tuple[str, str], str] = {
+    # OpenCode Go currently rejects qwen3.7-max through the OpenAI-compatible
+    # chat/completions transport used by Hermes. Keep Paperclip/Hermes on the
+    # paid 1M-context lane instead of falling into a weaker free fallback.
+    ("opencode-go", "qwen3.7-max"): "deepseek-v4-pro",
+}
+
+
+def normalize_provider_model(provider: str, model: Optional[str]) -> Optional[str]:
+    """Return the model Hermes should send for a provider/API-format pair."""
+    if not isinstance(model, str):
+        return model
+    normalized_provider = (provider or "").strip().lower()
+    trimmed_model = model.strip()
+    if not normalized_provider or not trimmed_model:
+        return trimmed_model
+
+    prefix = f"{normalized_provider}/"
+    bare_model = trimmed_model[len(prefix):] if trimmed_model.lower().startswith(prefix) else trimmed_model
+    replacement = _PROVIDER_MODEL_COMPATIBILITY_ALIASES.get((normalized_provider, bare_model.lower()))
+    return replacement or bare_model
+
 # OpenRouter app attribution headers
 _OR_HEADERS = {
     "HTTP-Referer": "https://hermes-agent.nousresearch.com",
@@ -835,7 +857,7 @@ def resolve_provider_client(
                 "Dropping OpenRouter-format model %r for non-OpenRouter "
                 "auxiliary provider (using %r instead)", model, resolved)
             model = None
-        final_model = model or resolved
+        final_model = normalize_provider_model(provider, model or resolved)
         return (_to_async_client(client, final_model) if async_mode
                 else (client, final_model))
 
@@ -846,7 +868,7 @@ def resolve_provider_client(
             logger.warning("resolve_provider_client: openrouter requested "
                            "but OPENROUTER_API_KEY not set")
             return None, None
-        final_model = model or default
+        final_model = normalize_provider_model(provider, model or default)
         return (_to_async_client(client, final_model) if async_mode
                 else (client, final_model))
 
@@ -857,7 +879,7 @@ def resolve_provider_client(
             logger.warning("resolve_provider_client: nous requested "
                            "but Nous Portal not configured (run: hermes login)")
             return None, None
-        final_model = model or default
+        final_model = normalize_provider_model(provider, model or default)
         return (_to_async_client(client, final_model) if async_mode
                 else (client, final_model))
 
@@ -871,7 +893,7 @@ def resolve_provider_client(
                 logger.warning("resolve_provider_client: openai-codex requested "
                                "but no Codex OAuth token found (run: hermes model)")
                 return None, None
-            final_model = model or _CODEX_AUX_MODEL
+            final_model = normalize_provider_model(provider, model or _CODEX_AUX_MODEL)
             raw_client = OpenAI(api_key=codex_token, base_url=_CODEX_AUX_BASE_URL)
             return (raw_client, final_model)
         # Standard path: wrap in CodexAuxiliaryClient adapter
@@ -880,7 +902,7 @@ def resolve_provider_client(
             logger.warning("resolve_provider_client: openai-codex requested "
                            "but no Codex OAuth token found (run: hermes model)")
             return None, None
-        final_model = model or default
+        final_model = normalize_provider_model(provider, model or default)
         return (_to_async_client(client, final_model) if async_mode
                 else (client, final_model))
 
@@ -907,7 +929,7 @@ def resolve_provider_client(
                        _resolve_api_key_provider):
             client, default = try_fn()
             if client is not None:
-                final_model = model or default
+                final_model = normalize_provider_model(provider, model or default)
                 return (_to_async_client(client, final_model) if async_mode
                         else (client, final_model))
         logger.warning("resolve_provider_client: custom/main requested "
@@ -932,7 +954,7 @@ def resolve_provider_client(
             if client is None:
                 logger.warning("resolve_provider_client: anthropic requested but no Anthropic credentials found")
                 return None, None
-            final_model = model or default_model
+            final_model = normalize_provider_model(provider, model or default_model)
             return (_to_async_client(client, final_model) if async_mode else (client, final_model))
 
         creds = resolve_api_key_provider_credentials(provider)
@@ -949,7 +971,7 @@ def resolve_provider_client(
         base_url = str(creds.get("base_url", "")).strip().rstrip("/") or pconfig.inference_base_url
 
         default_model = _API_KEY_PROVIDER_AUX_MODELS.get(provider, "")
-        final_model = model or default_model
+        final_model = normalize_provider_model(provider, model or default_model)
 
         # Provider-specific headers
         headers = {}

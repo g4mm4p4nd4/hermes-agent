@@ -12,6 +12,7 @@ from agent.auxiliary_client import (
     get_vision_auxiliary_client,
     get_available_vision_backends,
     resolve_provider_client,
+    normalize_provider_model,
     auxiliary_max_tokens_param,
     _read_codex_access_token,
     _get_auxiliary_provider,
@@ -604,6 +605,19 @@ class TestVisionClientFallback:
         assert call_kwargs["api_key"] == "gh-cli-token"
         assert call_kwargs["base_url"] == "https://api.githubcopilot.com"
         assert call_kwargs["default_headers"]["Editor-Version"]
+
+    def test_opencode_go_qwen_max_uses_oa_compat_long_context_alias(self, monkeypatch):
+        monkeypatch.setenv("OPENCODE_GO_API_KEY", "go-key")
+
+        with patch("agent.auxiliary_client.OpenAI") as mock_openai:
+            client, model = resolve_provider_client("opencode-go", model="qwen3.7-max")
+
+        assert client is not None
+        assert model == "deepseek-v4-pro"
+        assert normalize_provider_model("opencode-go", "opencode-go/qwen3.7-max") == "deepseek-v4-pro"
+        call_kwargs = mock_openai.call_args.kwargs
+        assert call_kwargs["api_key"] == "go-key"
+        assert call_kwargs["base_url"] == "https://opencode.ai/zen/go/v1"
 
     def test_vision_auto_uses_anthropic_when_no_higher_priority_backend(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-key")
