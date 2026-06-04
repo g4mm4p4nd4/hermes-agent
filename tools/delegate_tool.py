@@ -233,6 +233,8 @@ def _build_child_agent(
         provider_sort=parent_agent.provider_sort,
         tool_progress_callback=child_progress_cb,
         iteration_budget=None,  # fresh budget per subagent
+        output_max_sentences=getattr(parent_agent, "output_max_sentences", None),
+        output_max_chars=getattr(parent_agent, "output_max_chars", None),
     )
     # Set delegation depth so children can't spawn grandchildren
     child._delegate_depth = getattr(parent_agent, '_delegate_depth', 0) + 1

@@ -31,6 +31,7 @@ import yaml
 # User-managed env files should override stale shell exports on restart.
 _hermes_home = get_hermes_home()
 _project_env = Path(__file__).parent / '.env'
+from agent.prompt_builder import DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES
 
 from hermes_cli.env_loader import load_hermes_dotenv
 
@@ -64,6 +65,17 @@ from hermes_constants import get_hermes_home, OPENROUTER_BASE_URL
 
 DEFAULT_MODEL = "anthropic/claude-opus-4.5"
 DEFAULT_BASE_URL = OPENROUTER_BASE_URL
+
+
+def _coerce_non_negative_int(value, default: int, minimum: int = 0) -> int:
+    """Parse int-like values with a safe fallback and lower bound."""
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        parsed = int(value)
+        return parsed if parsed >= minimum else default
+    except (TypeError, ValueError):
+        return default
 
 
 def load_hermes_config() -> dict:
@@ -365,6 +377,17 @@ def main(
     print(f"📁 Toolsets: {', '.join(RL_TOOLSETS)}")
     print("=" * 60)
     
+    output_max_sentences = _coerce_non_negative_int(
+        os.getenv("HERMES_OUTPUT_MAX_SENTENCES"),
+        default=DEFAULT_OUTPUT_MAX_SENTENCES,
+        minimum=0,
+    )
+    output_max_chars = _coerce_non_negative_int(
+        os.getenv("HERMES_OUTPUT_MAX_CHARS"),
+        default=DEFAULT_OUTPUT_MAX_CHARS,
+        minimum=0,
+    )
+    
     # Create agent with RL configuration
     agent = AIAgent(
         base_url=base_url,
@@ -376,6 +399,8 @@ def main(
         verbose_logging=verbose,
         quiet_mode=False,
         ephemeral_system_prompt=RL_SYSTEM_PROMPT,
+        output_max_sentences=output_max_sentences,
+        output_max_chars=output_max_chars,
     )
     
     if interactive:

@@ -1,0 +1,20 @@
+{
+  "issueIdentifier": "POR-2529",
+  "issueId": "7a3af7f5-df9e-4d41-9822-f33536e1d35d",
+  "runId": "f25d0dfc-ff6f-4eb3-859a-8c665d30d842",
+  "repoSlug": "hermes-agent",
+  "cwd": "/Users/mnm/Documents/Github/hermes-agent",
+  "packProfile": "map",
+  "receiptPath": ".tmp/context-economy-canary/POR-2529-receipt.json",
+  "filesChanged": [
+    "docs/portfolio_os/context_economy_canary_POR-2529.md",
+    ".tmp/context-economy-canary/POR-2529-receipt.json"
+  ],
+  "testsRun": [
+    {
+      "command": "source venv/bin/activate && python -m json.tool .tmp/context-economy-canary/POR-2529-receipt.json >/dev/null && test -s docs/portfolio_os/context_economy_canary_POR-2529.md && python -m pytest tests/agent/test_prompt_builder.py -q",
+      "exitCode": 0
+    }
+  ],
+  "summary": "Created a hermes-agent repo-local canary document and receipt using the map context pack evidence path."
+}

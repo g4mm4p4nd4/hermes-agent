@@ -87,6 +87,24 @@ class TestAgentConfigSignature:
         sig2 = GatewayRunner._agent_config_signature("claude-sonnet-4", runtime, ["hermes-discord"], "")
         assert sig1 != sig2
 
+    def test_output_budget_changes_signature(self):
+        """Changing output caps changes the cached agent signature."""
+        from gateway.run import GatewayRunner
+
+        runtime1 = {
+            "api_key": "sk-test12345678",
+            "base_url": "https://openrouter.ai/api/v1",
+            "provider": "openrouter",
+            "output_max_sentences": 7,
+            "output_max_chars": 1200,
+        }
+        runtime2 = dict(runtime1)
+        runtime2.update({"output_max_sentences": 3, "output_max_chars": 600})
+
+        sig1 = GatewayRunner._agent_config_signature("claude-sonnet-4", runtime1, ["hermes-telegram"], "")
+        sig2 = GatewayRunner._agent_config_signature("claude-sonnet-4", runtime2, ["hermes-telegram"], "")
+        assert sig1 != sig2
+
     def test_reasoning_not_in_signature(self):
         """Reasoning config is set per-message, not part of the signature."""
         from gateway.run import GatewayRunner

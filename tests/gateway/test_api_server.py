@@ -526,6 +526,39 @@ class TestChatCompletionsEndpoint:
             assert "Provider failed" in data["error"]["message"]
 
 
+class TestApiServerAgentFactory:
+    @pytest.mark.asyncio
+    async def test_create_agent_includes_output_caps(self, adapter):
+        runtime_kwargs = {
+            "api_key": "test-key",
+            "base_url": "https://example.com/v1",
+            "provider": "openai",
+            "api_mode": "chat_completions",
+            "command": None,
+            "args": [],
+            "output_max_sentences": 3,
+            "output_max_chars": 600,
+        }
+
+        with patch("run_agent.AIAgent") as mock_agent_cls:
+            with patch("gateway.run._resolve_runtime_agent_kwargs", return_value=runtime_kwargs):
+                with patch("gateway.run._resolve_gateway_model", return_value="deepseek-test-model"):
+                    mock_agent = MagicMock()
+                    mock_agent_cls.return_value = mock_agent
+                    adapter._create_agent(
+                        ephemeral_system_prompt="compact",
+                        session_id="abc123",
+                    )
+
+                    mock_agent_cls.assert_called_once()
+                    _, kwargs = mock_agent_cls.call_args
+                    assert kwargs["model"] == "deepseek-test-model"
+                    assert kwargs["output_max_sentences"] == 3
+                    assert kwargs["output_max_chars"] == 600
+                    assert kwargs["api_key"] == "test-key"
+                    assert kwargs["base_url"] == "https://example.com/v1"
+
+
 # ---------------------------------------------------------------------------
 # /v1/responses endpoint
 # ---------------------------------------------------------------------------

@@ -118,6 +118,8 @@ def _make_agent_cls(error_cls, recover_after=None):
     """
 
     class _Agent(run_agent.AIAgent):
+        observed_api_calls = 0
+
         def __init__(self, *args, **kwargs):
             kwargs.setdefault("skip_context_files", True)
             kwargs.setdefault("skip_memory", True)
@@ -133,6 +135,7 @@ def _make_agent_cls(error_cls, recover_after=None):
 
             def _fake_api_call(api_kwargs):
                 calls["n"] += 1
+                type(self).observed_api_calls = calls["n"]
                 if recover_after is not None and calls["n"] > recover_after:
                     return _anthropic_response("Recovered")
                 raise error_cls()
@@ -219,8 +222,9 @@ def test_529_overloaded_is_retried_and_recovers(monkeypatch):
 def test_429_exhausts_all_retries_before_raising(monkeypatch):
     """429 must retry max_retries times, not abort on first attempt."""
     agent_cls = _make_agent_cls(_RateLimitError)  # always fails
-    with pytest.raises(_RateLimitError):
-        _run_with_agent(monkeypatch, agent_cls)
+    result = _run_with_agent(monkeypatch, agent_cls)
+    assert agent_cls.observed_api_calls == 3
+    assert "429" in str(result.get("final_response", ""))
 
 
 def test_400_bad_request_is_non_retryable(monkeypatch):

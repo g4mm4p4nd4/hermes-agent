@@ -74,6 +74,8 @@ from hermes_constants import OPENROUTER_BASE_URL
 from agent.prompt_builder import (
     DEFAULT_AGENT_IDENTITY, PLATFORM_HINTS,
     MEMORY_GUIDANCE, SESSION_SEARCH_GUIDANCE, SKILLS_GUIDANCE,
+    OUTPUT_BUDGET_VERSION, DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES,
+    OUTPUT_EXPANSION_KEYWORDS, build_output_contract_prompt,
 )
 from agent.model_metadata import (
     fetch_model_metadata,
@@ -424,6 +426,8 @@ class AIAgent:
         checkpoints_enabled: bool = False,
         checkpoint_max_snapshots: int = 50,
         pass_session_id: bool = False,
+        output_max_sentences: int | None = None,
+        output_max_chars: int | None = None,
     ):
         """
         Initialize the AI Agent.
@@ -467,6 +471,8 @@ class AIAgent:
                 When provided and Honcho is enabled in config, enables persistent cross-session user modeling.
             honcho_manager: Optional shared HonchoSessionManager owned by the caller.
             honcho_config: Optional HonchoClientConfig corresponding to honcho_manager.
+            output_max_sentences (int): Explicit sentence cap used by output policy. None = env default.
+            output_max_chars (int): Explicit character cap used by output policy. None = env default.
         """
         _install_safe_stdio()
 
@@ -570,6 +576,22 @@ class AIAgent:
         self.max_tokens = max_tokens  # None = use model default
         self.reasoning_config = reasoning_config  # None = use default (medium for OpenRouter)
         self.prefill_messages = prefill_messages or []  # Prefilled conversation turns
+        self.output_contract_version = OUTPUT_BUDGET_VERSION
+        output_max_sentences_default = os.getenv("HERMES_OUTPUT_MAX_SENTENCES")
+        output_max_chars_default = os.getenv("HERMES_OUTPUT_MAX_CHARS")
+        self.output_max_sentences = self._coerce_positive_int(
+            output_max_sentences if output_max_sentences is not None else output_max_sentences_default,
+            default=DEFAULT_OUTPUT_MAX_SENTENCES,
+            minimum=0,
+        )
+        self.output_max_chars = self._coerce_positive_int(
+            output_max_chars if output_max_chars is not None else output_max_chars_default,
+            default=DEFAULT_OUTPUT_MAX_CHARS,
+            minimum=0,
+        )
+        self.output_contract_state = self.output_contract_version
+        self.output_budget_truncation_count = 0
+        self._output_last_truncated = False
         
         # Anthropic prompt caching: auto-enabled for Claude models via OpenRouter.
         # Reduces input costs by ~75% on multi-turn conversations by caching the
@@ -676,6 +698,11 @@ class AIAgent:
         # Deferred paragraph break flag — set after tool iterations so a
         # single "\n\n" is prepended to the next real text delta.
         self._stream_needs_break = False
+        # Streaming output budget state, reinitialized for each API call.
+        self._stream_budget_active = False
+        self._stream_budget_user_message = ""
+        self._stream_budget_input_buffer = ""
+        self._stream_budget_emitted = ""
 
         # Optional current-turn user-message override used when the API-facing
         # user message intentionally differs from the persisted transcript
@@ -1206,6 +1233,154 @@ class AIAgent:
             except Exception:
                 logger.debug("status_callback error in _emit_status", exc_info=True)
 
+    @staticmethod
+    def _coerce_positive_int(
+        value: Any,
+        default: int,
+        minimum: int = 0,
+    ) -> int:
+        """Convert value to a positive integer with a safe fallback."""
+        try:
+            if value is None:
+                return default
+            parsed = int(value)
+            return parsed if parsed >= minimum else default
+        except (TypeError, ValueError):
+            return default
+
+    def _get_output_max_sentences(self) -> int:
+        """Return an int-safe sentence cap even for partially initialized agents."""
+        return self._coerce_positive_int(
+            getattr(self, "output_max_sentences", DEFAULT_OUTPUT_MAX_SENTENCES),
+            default=DEFAULT_OUTPUT_MAX_SENTENCES,
+            minimum=0,
+        )
+
+    def _get_output_max_chars(self) -> int:
+        """Return an int-safe character cap even for partially initialized agents."""
+        return self._coerce_positive_int(
+            getattr(self, "output_max_chars", DEFAULT_OUTPUT_MAX_CHARS),
+            default=DEFAULT_OUTPUT_MAX_CHARS,
+            minimum=0,
+        )
+
+    def _init_stream_output_budget(self, user_message: str | None = None) -> None:
+        """Initialize streaming output compaction state for a new API call."""
+        normalized_user_message = user_message or ""
+        self._stream_budget_active = not self._is_output_expansion_requested(
+            normalized_user_message,
+        )
+        self._stream_budget_input_buffer = ""
+        self._stream_budget_emitted = ""
+        self._stream_budget_user_message = normalized_user_message
+
+    def _enforce_stream_output_budget(self, text: str) -> str:
+        """Return the text slice that should be emitted after stream compaction."""
+        if not self._stream_budget_active:
+            return text
+        if not text:
+            return text
+
+        self._stream_budget_input_buffer += text
+        compacted, _ = self._enforce_output_budget(
+            self._stream_budget_input_buffer,
+            user_message=self._stream_budget_user_message,
+        )
+
+        if compacted == self._stream_budget_emitted:
+            return ""
+
+        delta = compacted[len(self._stream_budget_emitted):]
+        self._stream_budget_emitted = compacted
+        return delta
+
+    @staticmethod
+    def _is_output_expansion_requested(user_message: str) -> bool:
+        """Return True when the user message asks for extra depth/verbosity."""
+        if not user_message:
+            return False
+        lowered = user_message.lower()
+        return any(trigger in lowered for trigger in OUTPUT_EXPANSION_KEYWORDS)
+
+    def _enforce_output_budget(self, text: str, user_message: str) -> tuple[str, bool]:
+        """Compact output to the configured sentence/char budget when no expansion requested."""
+        if not text:
+            return "", False
+        self._output_last_truncated = False
+        if self._is_output_expansion_requested(user_message):
+            return text, False
+
+        compacted = text
+        truncated = False
+        output_max_sentences = self._get_output_max_sentences()
+        output_max_chars = self._get_output_max_chars()
+
+        # Sentence cap first.
+        if output_max_sentences > 0:
+            sentences = re.split(r"(?<=[.!?])\s+", compacted)
+            if len(sentences) > 0:
+                sentences[0] = sentences[0].lstrip()
+            if len(sentences) > output_max_sentences:
+                compacted = " ".join(s.strip() for s in sentences[:output_max_sentences]).strip()
+                truncated = True
+
+        # Paragraph cap (keep two paragraphs max).
+        paragraphs = [p.strip() for p in compacted.split("\n\n") if p.strip()]
+        if len(paragraphs) > 2:
+            compacted = "\n\n".join(paragraphs[:2]).strip()
+            truncated = True
+
+        # Character cap.
+        if output_max_chars > 0 and len(compacted) > output_max_chars:
+            compacted = compacted[:output_max_chars].rstrip()
+            compacted = compacted.rsplit(" ", 1)[0] if " " in compacted else compacted
+            truncated = True
+
+        if truncated and compacted:
+            compacted = (
+                compacted
+                + "\n\n[Response compacted. Reply with \"expand\" for a longer version.]"
+            )
+
+        self._output_last_truncated = truncated
+        return compacted, truncated
+
+    def _finalize_output_response(
+        self,
+        final_response: str | None,
+        user_message: str,
+        messages: list | None = None,
+    ) -> str:
+        """Apply output policy and keep last assistant message aligned."""
+        if not final_response:
+            self._output_last_truncated = False
+            self.output_contract_state = self.output_contract_version
+            return final_response
+
+        compacted_response, truncated = self._enforce_output_budget(
+            final_response.strip(), user_message=user_message,
+        )
+
+        if truncated:
+            self.output_budget_truncation_count += 1
+            self.output_contract_state = f"{self.output_contract_version}:truncated"
+        else:
+            self.output_contract_state = self.output_contract_version
+
+        if messages:
+            for idx in range(len(messages) - 1, -1, -1):
+                msg = messages[idx]
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("role") != "assistant":
+                    continue
+                if msg.get("tool_calls"):
+                    continue
+                msg["content"] = compacted_response
+                break
+
+        return compacted_response
+
     def _is_direct_openai_url(self, base_url: str = None) -> bool:
         """Return True when a base URL targets OpenAI's native API."""
         url = (base_url or self._base_url_lower).lower()
@@ -1486,6 +1661,8 @@ class AIAgent:
                         quiet_mode=True,
                         platform=self.platform,
                         provider=self.provider,
+                        output_max_sentences=self._get_output_max_sentences(),
+                        output_max_chars=self._get_output_max_chars(),
                     )
                     review_agent._memory_store = self._memory_store
                     review_agent._memory_enabled = self._memory_enabled
@@ -2547,6 +2724,11 @@ class AIAgent:
         platform_key = (self.platform or "").lower().strip()
         if platform_key in PLATFORM_HINTS:
             prompt_parts.append(PLATFORM_HINTS[platform_key])
+
+        prompt_parts.append(build_output_contract_prompt(
+            max_sentences=self._get_output_max_sentences(),
+            max_chars=self._get_output_max_chars(),
+        ))
 
         return "\n\n".join(prompt_parts)
 
@@ -3644,6 +3826,11 @@ class AIAgent:
 
     def _fire_stream_delta(self, text: str) -> None:
         """Fire all registered stream delta callbacks (display + TTS)."""
+        if self._stream_budget_active:
+            text = self._enforce_stream_output_budget(text)
+            if not text:
+                return
+
         # If a tool iteration set the break flag, prepend a single paragraph
         # break before the first real text delta.  This prevents the original
         # problem (text concatenation across tool boundaries) without stacking
@@ -3702,7 +3889,11 @@ class AIAgent:
         )
 
     def _interruptible_streaming_api_call(
-        self, api_kwargs: dict, *, on_first_delta: callable = None
+        self,
+        api_kwargs: dict,
+        *,
+        on_first_delta: callable = None,
+        user_message: str | None = None,
     ):
         """Streaming variant of _interruptible_api_call for real-time token delivery.
 
@@ -3719,6 +3910,8 @@ class AIAgent:
         Falls back to _interruptible_api_call on provider errors indicating
         streaming is not supported.
         """
+        self._init_stream_output_budget(user_message=user_message)
+
         if self.api_mode == "codex_responses":
             # Codex streams internally via _run_codex_stream. The main dispatch
             # in _interruptible_api_call already calls it; we just need to
@@ -5528,7 +5721,9 @@ class AIAgent:
             except Exception:
                 logger.debug("status_callback error in context pressure", exc_info=True)
 
-    def _handle_max_iterations(self, messages: list, api_call_count: int) -> str:
+    def _handle_max_iterations(
+        self, messages: list, api_call_count: int, user_message: str | None = None
+    ) -> str:
         """Request a summary when max iterations are reached. Returns the final response text."""
         print(f"⚠️  Reached maximum iterations ({self.max_iterations}). Requesting summary...")
 
@@ -5677,6 +5872,10 @@ class AIAgent:
             logging.warning(f"Failed to get summary response: {e}")
             final_response = f"I reached the maximum iterations ({self.max_iterations}) but couldn't summarize. Error: {str(e)}"
 
+        final_response = self._finalize_output_response(
+            final_response, user_message=user_message or "", messages=messages,
+        )
+
         return final_response
 
     def run_conversation(
@@ -5754,6 +5953,7 @@ class AIAgent:
         # Preserve the original user message (no nudge injection).
         # Honcho should receive the actual user input, not system nudges.
         original_user_message = persist_user_message if persist_user_message is not None else user_message
+        output_contract_pre_applied = False
 
         # Track memory nudge trigger (turn-based, checked here).
         # Skill trigger is checked AFTER the agent loop completes, based on
@@ -6096,7 +6296,9 @@ class AIAgent:
 
                     if _use_streaming:
                         response = self._interruptible_streaming_api_call(
-                            api_kwargs, on_first_delta=_stop_spinner
+                            api_kwargs,
+                            on_first_delta=_stop_spinner,
+                            user_message=original_user_message,
                         )
                     else:
                         response = self._interruptible_api_call(api_kwargs)
@@ -7387,7 +7589,6 @@ class AIAgent:
                     final_response = self._strip_think_blocks(final_response).strip()
                     
                     final_msg = self._build_assistant_message(assistant_message, finish_reason)
-                    
                     messages.append(final_msg)
                     
                     if not self.quiet_mode:
@@ -7443,6 +7644,8 @@ class AIAgent:
                     final_response = f"I apologize, but I encountered repeated errors: {error_msg}"
                     # Append as assistant so the history stays valid for
                     # session resume (avoids consecutive user messages).
+                    # Final budget is applied after loop exits so it stays
+                    # consistent with _handle_max_iterations and normal-final paths.
                     messages.append({"role": "assistant", "content": final_response})
                     break
         
@@ -7452,7 +7655,17 @@ class AIAgent:
         ):
             if self.iteration_budget.remaining <= 0 and not self.quiet_mode:
                 print(f"\n⚠️  Iteration budget exhausted ({self.iteration_budget.used}/{self.iteration_budget.max_total} iterations used)")
-            final_response = self._handle_max_iterations(messages, api_call_count)
+            final_response = self._handle_max_iterations(
+                messages, api_call_count, user_message=original_user_message,
+            )
+            output_contract_pre_applied = True
+
+        if final_response is not None and not output_contract_pre_applied:
+            final_response = self._finalize_output_response(
+                final_response,
+                user_message=original_user_message,
+                messages=messages,
+            )
         
         # Determine if conversation completed successfully
         completed = final_response is not None and api_call_count < self.max_iterations
@@ -7503,6 +7716,10 @@ class AIAgent:
             "estimated_cost_usd": self.session_estimated_cost_usd,
             "cost_status": self.session_cost_status,
             "cost_source": self.session_cost_source,
+            "output_contract_version": self.output_contract_version,
+            "output_contract_state": self.output_contract_state,
+            "output_budget_truncated": self._output_last_truncated,
+            "output_budget_truncation_count": self.output_budget_truncation_count,
         }
         self._response_was_previewed = False
         
@@ -7703,7 +7920,9 @@ def main(
             disabled_toolsets=disabled_toolsets_list,
             save_trajectories=save_trajectories,
             verbose_logging=verbose,
-            log_prefix_chars=log_prefix_chars
+            log_prefix_chars=log_prefix_chars,
+            output_max_sentences=os.getenv("HERMES_OUTPUT_MAX_SENTENCES", DEFAULT_OUTPUT_MAX_SENTENCES),
+            output_max_chars=os.getenv("HERMES_OUTPUT_MAX_CHARS", DEFAULT_OUTPUT_MAX_CHARS),
         )
     except RuntimeError as e:
         print(f"❌ Failed to initialize agent: {e}")

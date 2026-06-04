@@ -403,12 +403,19 @@ DEFAULT_CONFIG = {
         "website_blocklist": {
             "enabled": False,
             "domains": [],
-            "shared_files": [],
-        },
+        "shared_files": [],
+    },
+    },
+
+    # Output budget controls keep agents concise by default and avoid
+    # unnecessary token spend on long, verbose answers.
+    "output": {
+        "max_sentences": 7,
+        "max_chars": 1200,
     },
 
     # Config schema version - bump this when adding new required fields
-    "_config_version": 10,
+    "_config_version": 11,
 }
 
 # =============================================================================
@@ -892,6 +899,20 @@ OPTIONAL_ENV_VARS = {
         "password": False,
         "category": "setting",
     },
+    "HERMES_OUTPUT_MAX_SENTENCES": {
+        "description": "Default compact output sentence cap per response (default: 7)",
+        "prompt": "Output sentence cap",
+        "url": None,
+        "password": False,
+        "category": "setting",
+    },
+    "HERMES_OUTPUT_MAX_CHARS": {
+        "description": "Default compact output character cap per response (default: 1200)",
+        "prompt": "Output character cap",
+        "url": None,
+        "password": False,
+        "category": "setting",
+    },
     # HERMES_TOOL_PROGRESS and HERMES_TOOL_PROGRESS_MODE are deprecated —
     # now configured via display.tool_progress in config.yaml (off|new|all|verbose).
     # Gateway falls back to these env vars for backward compatibility.
@@ -1077,6 +1098,25 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                     print("  ✓ Cleared ANTHROPIC_TOKEN from .env (no longer used)")
         except Exception:
             pass
+
+    # ── Version 10 → 11: add default output contract section.
+    if current_ver < 11:
+        config = load_config()
+        output_cfg = config.get("output")
+        if not isinstance(output_cfg, dict):
+            output_cfg = {}
+        defaults = DEFAULT_CONFIG["output"]
+        if output_cfg.get("max_sentences") is None:
+            output_cfg["max_sentences"] = defaults["max_sentences"]
+        if output_cfg.get("max_chars") is None:
+            output_cfg["max_chars"] = defaults["max_chars"]
+        config["output"] = output_cfg
+        save_config(config)
+        if not quiet:
+            print(
+                "  ✓ Added/updated output contract defaults in config.yaml ("
+                f"max_sentences={output_cfg['max_sentences']}, max_chars={output_cfg['max_chars']})"
+            )
 
     if current_ver < latest_ver and not quiet:
         print(f"Config version: {current_ver} → {latest_ver}")

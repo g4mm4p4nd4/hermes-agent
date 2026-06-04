@@ -225,6 +225,50 @@ PLATFORM_HINTS = {
     ),
 }
 
+OUTPUT_BUDGET_VERSION = "compact_v1"
+DEFAULT_OUTPUT_MAX_SENTENCES = 7
+DEFAULT_OUTPUT_MAX_CHARS = 1200
+OUTPUT_EXPANSION_KEYWORDS = (
+    "expand",
+    "more detail",
+    "more details",
+    "in detail",
+    "detailed",
+    "full detail",
+    "full details",
+    "verbose",
+    "complete response",
+    "unabridged",
+)
+
+
+def build_output_contract_prompt(
+    max_sentences: int = DEFAULT_OUTPUT_MAX_SENTENCES,
+    max_chars: int = DEFAULT_OUTPUT_MAX_CHARS,
+) -> str:
+    """Return the output budget contract inserted into the cached system prompt."""
+    sentence_clause = (
+        f"{max_sentences} sentences"
+        if max_sentences and max_sentences > 0
+        else "no hard sentence cap"
+    )
+    char_clause = (
+        f"roughly {max_chars} characters"
+        if max_chars and max_chars > 0
+        else "no hard character cap"
+    )
+    return (
+        "## Output Budget Policy\n"
+        "Default responses must be compact: no more than "
+        f"{sentence_clause} or {char_clause}.\n"
+        "Default output style should be one focused paragraph, with a brief second paragraph "
+        "only when needed. Avoid filler, narrative preambles, and redundant recap.\n"
+        "Only exceed this policy when the user explicitly requests depth or expansion "
+        "(for example: asks for more detail, a full breakdown, a verbose response, "
+        "'expand', or 'in detail').\n"
+        "If expansion is requested, still prefer structure: headings, short paragraphs, and plain language."
+    )
+
 CONTEXT_FILE_MAX_CHARS = 20_000
 CONTEXT_TRUNCATE_HEAD_RATIO = 0.7
 CONTEXT_TRUNCATE_TAIL_RATIO = 0.2

@@ -83,6 +83,7 @@ _hermes_home = get_hermes_home()
 # User-managed env files should override stale shell exports on restart.
 from dotenv import load_dotenv  # backward-compat for tests that monkeypatch this symbol
 from hermes_cli.env_loader import load_hermes_dotenv
+from agent.prompt_builder import DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES
 _env_path = _hermes_home / '.env'
 load_hermes_dotenv(hermes_home=_hermes_home, project_env=Path(__file__).resolve().parents[1] / '.env')
 
@@ -180,6 +181,12 @@ if _config_path.exists():
         if _agent_cfg and isinstance(_agent_cfg, dict):
             if "max_turns" in _agent_cfg:
                 os.environ["HERMES_MAX_ITERATIONS"] = str(_agent_cfg["max_turns"])
+            _output_cfg = _cfg.get("output", {})
+            if isinstance(_output_cfg, dict):
+                if _output_cfg.get("max_sentences") is not None:
+                    os.environ["HERMES_OUTPUT_MAX_SENTENCES"] = str(_output_cfg.get("max_sentences"))
+                if _output_cfg.get("max_chars") is not None:
+                    os.environ["HERMES_OUTPUT_MAX_CHARS"] = str(_output_cfg.get("max_chars"))
         # Timezone: bridge config.yaml → HERMES_TIMEZONE env var.
         # HERMES_TIMEZONE from .env takes precedence (already in os.environ).
         _tz_cfg = _cfg.get("timezone", "")
@@ -240,6 +247,37 @@ def _resolve_runtime_agent_kwargs() -> dict:
         format_runtime_provider_error,
     )
 
+    def _coerce_non_negative_int(value, default: int, minimum: int = 0) -> int:
+        """Parse an int-like value with safe fallback and lower bound."""
+        try:
+            if value is None or str(value).strip() == "":
+                return default
+            parsed = int(value)
+            return parsed if parsed >= minimum else default
+        except (TypeError, ValueError):
+            return default
+
+    config = _load_gateway_config()
+    output_cfg = config.get("output", {}) if isinstance(config, dict) else {}
+    if not isinstance(output_cfg, dict):
+        output_cfg = {}
+    output_max_sentences = _coerce_non_negative_int(
+        os.getenv(
+            "HERMES_OUTPUT_MAX_SENTENCES",
+            output_cfg.get("max_sentences"),
+        ),
+        default=DEFAULT_OUTPUT_MAX_SENTENCES,
+        minimum=0,
+    )
+    output_max_chars = _coerce_non_negative_int(
+        os.getenv(
+            "HERMES_OUTPUT_MAX_CHARS",
+            output_cfg.get("max_chars"),
+        ),
+        default=DEFAULT_OUTPUT_MAX_CHARS,
+        minimum=0,
+    )
+
     try:
         runtime = resolve_runtime_provider(
             requested=os.getenv("HERMES_INFERENCE_PROVIDER"),
@@ -254,6 +292,8 @@ def _resolve_runtime_agent_kwargs() -> dict:
         "api_mode": runtime.get("api_mode"),
         "command": runtime.get("command"),
         "args": list(runtime.get("args") or []),
+        "output_max_sentences": output_max_sentences,
+        "output_max_chars": output_max_chars,
     }
 
 
@@ -695,7 +735,18 @@ class GatewayRunner:
             "command": runtime_kwargs.get("command"),
             "args": list(runtime_kwargs.get("args") or []),
         }
-        return resolve_turn_route(user_message, getattr(self, "_smart_model_routing", {}), primary)
+        route = resolve_turn_route(
+            user_message,
+            getattr(self, "_smart_model_routing", {}),
+            primary,
+        )
+        route_runtime = route.get("runtime")
+        if isinstance(route_runtime, dict):
+            if runtime_kwargs.get("output_max_sentences") is not None:
+                route_runtime["output_max_sentences"] = runtime_kwargs["output_max_sentences"]
+            if runtime_kwargs.get("output_max_chars") is not None:
+                route_runtime["output_max_chars"] = runtime_kwargs["output_max_chars"]
+        return route
 
     async def _handle_adapter_fatal_error(self, adapter: BasePlatformAdapter) -> None:
         """React to an adapter failure after startup.
@@ -4749,6 +4800,8 @@ class GatewayRunner:
                 runtime.get("base_url", ""),
                 runtime.get("provider", ""),
                 runtime.get("api_mode", ""),
+                runtime.get("output_max_sentences", DEFAULT_OUTPUT_MAX_SENTENCES),
+                runtime.get("output_max_chars", DEFAULT_OUTPUT_MAX_CHARS),
                 sorted(enabled_toolsets) if enabled_toolsets else [],
                 # reasoning_config excluded — it's set per-message on the
                 # cached agent and doesn't affect system prompt or tools.

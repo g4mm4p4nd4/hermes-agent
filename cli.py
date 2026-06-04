@@ -63,6 +63,7 @@ from agent.usage_pricing import (
     format_duration_compact,
     format_token_count_compact,
 )
+from agent.prompt_builder import DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES
 from hermes_cli.banner import _format_context_length
 
 _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
@@ -118,6 +119,21 @@ def _parse_reasoning_config(effort: str) -> dict | None:
     if effort and effort.strip() and result is None:
         logger.warning("Unknown reasoning_effort '%s', using default (medium)", effort)
     return result
+
+
+def _coerce_non_negative_int(
+    value: Any,
+    default: int,
+    minimum: int = 0,
+) -> int:
+    """Parse an int-like value with a safe fallback and lower bound."""
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        parsed = int(value)
+        return parsed if parsed >= minimum else default
+    except (TypeError, ValueError):
+        return default
 
 
 def load_cli_config() -> Dict[str, Any]:
@@ -1124,6 +1140,18 @@ class HermesCLI:
             self.max_turns = int(os.getenv("HERMES_MAX_ITERATIONS"))
         else:
             self.max_turns = 90
+
+        output_cfg = CLI_CONFIG.get("output", {}) or {}
+        self.output_max_sentences = _coerce_non_negative_int(
+            os.getenv("HERMES_OUTPUT_MAX_SENTENCES", output_cfg.get("max_sentences")),
+            default=DEFAULT_OUTPUT_MAX_SENTENCES,
+            minimum=0,
+        )
+        self.output_max_chars = _coerce_non_negative_int(
+            os.getenv("HERMES_OUTPUT_MAX_CHARS", output_cfg.get("max_chars")),
+            default=DEFAULT_OUTPUT_MAX_CHARS,
+            minimum=0,
+        )
         
         # Parse and validate toolsets
         self.enabled_toolsets = toolsets
@@ -1929,7 +1957,7 @@ class HermesCLI:
         """Resolve model/runtime overrides for a single user turn."""
         from agent.smart_model_routing import resolve_turn_route
 
-        return resolve_turn_route(
+        route = resolve_turn_route(
             user_message,
             self._smart_model_routing,
             {
@@ -1942,6 +1970,11 @@ class HermesCLI:
                 "args": list(self.acp_args or []),
             },
         )
+        runtime = route.get("runtime")
+        if isinstance(runtime, dict):
+            runtime["output_max_sentences"] = self.output_max_sentences
+            runtime["output_max_chars"] = self.output_max_chars
+        return route
 
     def _init_agent(self, *, model_override: str = None, runtime_override: dict = None, route_label: str = None) -> bool:
         """
@@ -2035,6 +2068,8 @@ class HermesCLI:
                 provider_data_collection=self._provider_data_collection,
                 session_id=self.session_id,
                 platform="cli",
+                output_max_sentences=self.output_max_sentences,
+                output_max_chars=self.output_max_chars,
                 session_db=self._session_db,
                 clarify_callback=self._clarify_callback,
                 reasoning_callback=self._current_reasoning_callback(),
@@ -3934,6 +3969,8 @@ class HermesCLI:
                     provider_require_parameters=self._provider_require_params,
                     provider_data_collection=self._provider_data_collection,
                     fallback_model=self._fallback_model,
+                    output_max_sentences=self.output_max_sentences,
+                    output_max_chars=self.output_max_chars,
                 )
 
                 result = bg_agent.run_conversation(

@@ -81,6 +81,7 @@ class TestStreamingAccumulator:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -121,6 +122,7 @@ class TestStreamingAccumulator:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -168,6 +170,7 @@ class TestStreamingAccumulator:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -206,6 +209,7 @@ class TestStreamingAccumulator:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -246,6 +250,7 @@ class TestStreamingCallbacks:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -257,6 +262,83 @@ class TestStreamingCallbacks:
         agent._interruptible_streaming_api_call({})
 
         assert deltas == ["a", "b", "c"]
+
+    @patch("run_agent.AIAgent._create_request_openai_client")
+    @patch("run_agent.AIAgent._close_request_openai_client")
+    def test_deltas_are_compacted_by_output_contract(self, mock_close, mock_create):
+        """Streaming deltas are compacted in-flight to the default contract."""
+        from run_agent import AIAgent
+
+        chunks = [
+            _make_stream_chunk(content="Sentence one."),
+            _make_stream_chunk(content=" Sentence two."),
+            _make_stream_chunk(content=" Sentence three."),
+            _make_stream_chunk(finish_reason="stop"),
+        ]
+        deltas = []
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = iter(chunks)
+        mock_create.return_value = mock_client
+
+        agent = AIAgent(
+            model="test/model",
+            api_key="test-key",
+            quiet_mode=True,
+            skip_context_files=True,
+            skip_memory=True,
+            output_max_sentences=1,
+            stream_delta_callback=lambda t: deltas.append(t),
+        )
+        agent.api_mode = "chat_completions"
+        agent._interrupt_requested = False
+
+        agent._interruptible_streaming_api_call(
+            {},
+            user_message="give me a concise update",
+        )
+
+        assert "".join(deltas) == (
+            "Sentence one.\n\n[Response compacted. Reply with \"expand\" for a longer version.]"
+        )
+        assert any("Response compacted." in delta for delta in deltas)
+
+    @patch("run_agent.AIAgent._create_request_openai_client")
+    @patch("run_agent.AIAgent._close_request_openai_client")
+    def test_deltas_are_not_compacted_when_expand_requested(self, mock_close, mock_create):
+        """Explicit expansion requests keep streaming output uncapped."""
+        from run_agent import AIAgent
+
+        chunks = [
+            _make_stream_chunk(content="Sentence one."),
+            _make_stream_chunk(content=" Sentence two."),
+            _make_stream_chunk(content=" Sentence three."),
+            _make_stream_chunk(finish_reason="stop"),
+        ]
+        deltas = []
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = iter(chunks)
+        mock_create.return_value = mock_client
+
+        agent = AIAgent(
+            model="test/model",
+            api_key="test-key",
+            quiet_mode=True,
+            skip_context_files=True,
+            skip_memory=True,
+            output_max_sentences=1,
+            stream_delta_callback=lambda t: deltas.append(t),
+        )
+        agent.api_mode = "chat_completions"
+        agent._interrupt_requested = False
+
+        agent._interruptible_streaming_api_call(
+            {},
+            user_message="expand and walk me through all details",
+        )
+
+        assert "".join(deltas) == "Sentence one. Sentence two. Sentence three."
 
     @patch("run_agent.AIAgent._create_request_openai_client")
     @patch("run_agent.AIAgent._close_request_openai_client")
@@ -278,6 +360,7 @@ class TestStreamingCallbacks:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -315,6 +398,7 @@ class TestStreamingCallbacks:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -350,6 +434,7 @@ class TestStreamingCallbacks:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -406,6 +491,7 @@ class TestStreamingFallback:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -450,6 +536,7 @@ class TestStreamingFallback:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -477,6 +564,7 @@ class TestStreamingFallback:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -518,6 +606,7 @@ class TestStreamingFallback:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -561,6 +650,7 @@ class TestReasoningStreaming:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -588,6 +678,7 @@ class TestHasStreamConsumers:
         from run_agent import AIAgent
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -598,6 +689,7 @@ class TestHasStreamConsumers:
         from run_agent import AIAgent
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -609,6 +701,7 @@ class TestHasStreamConsumers:
         from run_agent import AIAgent
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
@@ -630,6 +723,7 @@ class TestCodexStreamCallbacks:
 
         agent = AIAgent(
             model="test/model",
+            api_key="test-key",
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,

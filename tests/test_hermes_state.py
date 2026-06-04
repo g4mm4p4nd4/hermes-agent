@@ -1,6 +1,7 @@
 """Tests for hermes_state.py — SessionDB SQLite CRUD, FTS5 search, export."""
 
 import time
+import sqlite3
 import pytest
 from pathlib import Path
 
@@ -52,6 +53,91 @@ class TestSessionLifecycle:
 
         session = db.get_session("s1")
         assert session["system_prompt"] == "You are a helpful assistant."
+
+        blocks = db._conn.execute(
+            """SELECT pb.content, pb.sha256, spb.block_role
+               FROM session_prompt_blocks spb
+               JOIN prompt_blocks pb ON pb.sha256 = spb.block_sha256
+               WHERE spb.session_id = ?""",
+            ("s1",),
+        ).fetchall()
+        assert len(blocks) == 1
+        assert blocks[0]["content"] == "You are a helpful assistant."
+        assert len(blocks[0]["sha256"]) == 64
+        assert blocks[0]["block_role"] == "system"
+
+    def test_v7_migration_adds_artifact_replay_columns(self, tmp_path):
+        db_path = tmp_path / "legacy_state.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE schema_version (version INTEGER NOT NULL);
+            INSERT INTO schema_version (version) VALUES (6);
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                user_id TEXT,
+                model TEXT,
+                model_config TEXT,
+                system_prompt TEXT,
+                parent_session_id TEXT,
+                started_at REAL NOT NULL,
+                ended_at REAL,
+                end_reason TEXT,
+                message_count INTEGER DEFAULT 0,
+                tool_call_count INTEGER DEFAULT 0,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                cache_read_tokens INTEGER DEFAULT 0,
+                cache_write_tokens INTEGER DEFAULT 0,
+                reasoning_tokens INTEGER DEFAULT 0,
+                billing_provider TEXT,
+                billing_base_url TEXT,
+                billing_mode TEXT,
+                estimated_cost_usd REAL,
+                actual_cost_usd REAL,
+                cost_status TEXT,
+                cost_source TEXT,
+                pricing_version TEXT,
+                title TEXT
+            );
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL REFERENCES sessions(id),
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_details TEXT,
+                codex_reasoning_items TEXT
+            );
+            INSERT INTO sessions (id, source, started_at) VALUES ('legacy', 'cli', 1.0);
+            INSERT INTO messages (session_id, role, content, timestamp)
+                VALUES ('legacy', 'tool', 'legacy searchable artifact text', 1.0);
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        migrated = SessionDB(db_path=db_path)
+        try:
+            version = migrated._conn.execute("SELECT version FROM schema_version").fetchone()[0]
+            assert version == 7
+            columns = {
+                row["name"]
+                for row in migrated._conn.execute("PRAGMA table_info(messages)").fetchall()
+            }
+            assert {"replay_content", "search_content", "content_sha256", "content_artifacted"} <= columns
+            assert migrated._conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] == 0
+            results = migrated.search_messages("legacy searchable")
+            assert len(results) == 1
+        finally:
+            migrated.close()
 
     def test_update_token_counts(self, db):
         db.create_session(session_id="s1", source="cli")
@@ -261,6 +347,169 @@ class TestMessageStorage:
         assert len(conv) == 1
         assert conv[0]["codex_reasoning_items"] == codex_items
         assert conv[0]["codex_reasoning_items"][0]["encrypted_content"] == "enc_blob_123"
+
+    def test_large_tool_output_is_artifactized(self, db):
+        db.create_session(session_id="s1", source="cli")
+        raw = "terminal-output\n" + ("critical traceback line\n" * 400)
+        msg_id = db.append_message(
+            "s1",
+            role="tool",
+            content=raw,
+            tool_name="terminal",
+            tool_call_id="call_terminal",
+        )
+
+        row = db._conn.execute(
+            "SELECT content, replay_content, search_content, content_sha256, content_artifacted, content_artifact_kind "
+            "FROM messages WHERE id = ?",
+            (msg_id,),
+        ).fetchone()
+        assert row["content_artifacted"] == 1
+        assert row["content_artifact_kind"] == "terminal_output"
+        assert row["content_sha256"]
+        assert row["content"].startswith("[Hermes artifact-backed replay]")
+        assert row["search_content"] == raw
+
+        artifact = db._conn.execute(
+            """SELECT a.sha256, a.kind, a.content
+               FROM message_artifacts ma
+               JOIN artifacts a ON a.id = ma.artifact_id
+               WHERE ma.message_id = ?""",
+            (msg_id,),
+        ).fetchone()
+        assert artifact["sha256"] == row["content_sha256"]
+        assert artifact["kind"] == "terminal_output"
+        assert artifact["content"].decode("utf-8") == raw
+
+    def test_recent_decisive_tool_group_replays_exact(self, db):
+        db.create_session(session_id="s1", source="cli")
+        tool_calls = [
+            {"id": "call_1", "function": {"name": "terminal", "arguments": '{"command":"pytest"}'}},
+        ]
+        raw = "pytest output\n" + ("failure frame app.py:42\n" * 400)
+        db.append_message("s1", role="assistant", content="", tool_calls=tool_calls)
+        db.append_message("s1", role="tool", content=raw, tool_name="terminal", tool_call_id="call_1")
+
+        conv = db.get_messages_as_conversation("s1")
+        assert conv[0]["tool_calls"] == tool_calls
+        assert conv[1]["tool_call_id"] == "call_1"
+        assert conv[1]["content"] == raw
+
+    def test_old_large_tool_output_replays_bounded_pointer_but_remains_searchable(self, db):
+        db.create_session(session_id="s1", source="cli")
+        old_calls = [
+            {"id": "old_call", "function": {"name": "terminal", "arguments": '{"command":"pytest"}'}},
+        ]
+        old_raw = "old terminal output\n" + ("UNIQUE_OLD_FAILURE_FRAME file.py:99\n" * 350)
+        db.append_message("s1", role="assistant", content="", tool_calls=old_calls)
+        db.append_message("s1", role="tool", content=old_raw, tool_name="terminal", tool_call_id="old_call")
+        for i in range(9):
+            db.append_message("s1", role="user", content=f"filler message {i}")
+        new_calls = [
+            {"id": "new_call", "function": {"name": "terminal", "arguments": '{"command":"echo ok"}'}},
+        ]
+        new_raw = "new terminal output\n" + ("CURRENT_DECISIVE_FRAME now.py:7\n" * 350)
+        db.append_message("s1", role="assistant", content="", tool_calls=new_calls)
+        db.append_message("s1", role="tool", content=new_raw, tool_name="terminal", tool_call_id="new_call")
+
+        conv = db.get_messages_as_conversation("s1")
+        old_tool = next(msg for msg in conv if msg.get("tool_call_id") == "old_call")
+        new_tool = next(msg for msg in conv if msg.get("tool_call_id") == "new_call")
+        assert old_tool["content"].startswith("[Hermes artifact-backed replay]")
+        assert "sha256:" in old_tool["content"]
+        assert len(old_tool["content"]) < len(old_raw)
+        assert old_tool["tool_call_id"] == "old_call"
+        assert new_tool["content"] == new_raw
+
+        results = db.search_messages("UNIQUE_OLD_FAILURE_FRAME")
+        assert len(results) >= 1
+        assert any(
+            "UNIQUE_OLD_FAILURE_FRAME" in " ".join(
+                item.get("content", "") for item in result.get("context", [])
+            )
+            for result in results
+        )
+
+    def test_legacy_large_user_prompts_are_lazy_artifactized_on_resume(self, db):
+        db.create_session(session_id="s1", source="paperclip")
+        legacy_prompt = (
+            "You are Engineer running inside Paperclip through Hermes.\n"
+            "UNIQUE_LEGACY_RESUME_CONTEXT\n"
+            + ("Working directory: /repo\nPrompt class: context_manifest\n" * 320)
+        )
+        legacy_ids = []
+        for _ in range(3):
+            cursor = db._conn.execute(
+                """INSERT INTO messages
+                   (session_id, role, content, timestamp, replay_content, search_content,
+                    content_artifacted)
+                   VALUES ('s1', 'user', ?, ?, ?, ?, 0)""",
+                (legacy_prompt, time.time(), legacy_prompt, legacy_prompt),
+            )
+            legacy_ids.append(cursor.lastrowid)
+        db._conn.commit()
+
+        conv = db.get_messages_as_conversation("s1")
+
+        assert len(conv) == 3
+        assert all(msg["content"].startswith("[Hermes artifact-backed replay]") for msg in conv)
+        assert all(len(msg["content"]) < len(legacy_prompt) for msg in conv)
+        assert all("sha256:" in msg["content"] for msg in conv)
+        assert "UNIQUE_LEGACY_RESUME_CONTEXT" in conv[0]["content"]
+        assert "duplicate_of_prior_artifact: true" not in conv[0]["content"]
+        assert "duplicate_of_prior_artifact: true" in conv[1]["content"]
+        assert "UNIQUE_LEGACY_RESUME_CONTEXT" not in conv[1]["content"]
+        assert sum(len(msg["content"]) for msg in conv) < 2500
+        rows = db._conn.execute(
+            "SELECT id, content_artifacted, content_artifact_kind, search_content FROM messages ORDER BY id"
+        ).fetchall()
+        assert [row["id"] for row in rows] == legacy_ids
+        assert all(row["content_artifacted"] == 1 for row in rows)
+        assert all(row["content_artifact_kind"] == "message_content" for row in rows)
+        assert all(row["search_content"] == legacy_prompt for row in rows)
+        assert db._conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] == 1
+
+        results = db.search_messages("UNIQUE_LEGACY_RESUME_CONTEXT")
+        assert len(results) >= 1
+
+    def test_near_duplicate_legacy_prompt_envelopes_collapse_by_evidence_signature(self, db):
+        db.create_session(session_id="s1", source="paperclip")
+        stable_evidence = (
+            "You are Engineer running inside Paperclip through Hermes.\n"
+            "Prompt class: context_manifest\n"
+            "Working directory: /repo\n"
+            "Branch: main\n"
+            "Receipt path: /tmp/paperclip/receipt.json\n"
+            + ("Evidence payload line that should not be replayed repeatedly.\n" * 120)
+        )
+        for wake_count in range(3):
+            prompt = (
+                stable_evidence
+                + f"Wake count: {wake_count}\n"
+                + f"UNIQUE_VOLATILE_PROMPT_SUFFIX_{wake_count}\n"
+            )
+            db._conn.execute(
+                """INSERT INTO messages
+                   (session_id, role, content, timestamp, replay_content, search_content,
+                    content_artifacted)
+                   VALUES ('s1', 'user', ?, ?, ?, ?, 0)""",
+                (prompt, time.time() + wake_count, prompt, prompt),
+            )
+        db._conn.commit()
+
+        conv = db.get_messages_as_conversation("s1")
+
+        assert len(conv) == 3
+        assert "evidence_slices:" in conv[0]["content"]
+        assert "same_evidence_signature_as_prior: true" not in conv[0]["content"]
+        assert "same_evidence_signature_as_prior: true" in conv[1]["content"]
+        assert "same_evidence_signature_as_prior: true" in conv[2]["content"]
+        assert "UNIQUE_VOLATILE_PROMPT_SUFFIX_1" not in conv[1]["content"]
+        assert sum(len(msg["content"]) for msg in conv) < 2200
+        assert db._conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] == 3
+
+        results = db.search_messages("UNIQUE_VOLATILE_PROMPT_SUFFIX_2")
+        assert len(results) >= 1
 
 
 # =========================================================================
@@ -817,12 +1066,15 @@ class TestSchemaInit:
         tables = {row[0] for row in cursor.fetchall()}
         assert "sessions" in tables
         assert "messages" in tables
+        assert "artifacts" in tables
+        assert "message_artifacts" in tables
+        assert "prompt_blocks" in tables
         assert "schema_version" in tables
 
     def test_schema_version(self, db):
         cursor = db._conn.execute("SELECT version FROM schema_version")
         version = cursor.fetchone()[0]
-        assert version == 6
+        assert version == 7
 
     def test_title_column_exists(self, db):
         """Verify the title column was created in the sessions table."""
@@ -878,12 +1130,12 @@ class TestSchemaInit:
         conn.commit()
         conn.close()
 
-        # Open with SessionDB — should migrate to v6
+        # Open with SessionDB — should migrate to v7
         migrated_db = SessionDB(db_path=db_path)
 
         # Verify migration
         cursor = migrated_db._conn.execute("SELECT version FROM schema_version")
-        assert cursor.fetchone()[0] == 6
+        assert cursor.fetchone()[0] == 7
 
         # Verify title column exists and is NULL for existing sessions
         session = migrated_db.get_session("existing")

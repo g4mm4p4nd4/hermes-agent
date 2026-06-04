@@ -16,6 +16,8 @@ import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
+from agent.prompt_builder import DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES
+
 from tools.delegate_tool import (
     DELEGATE_BLOCKED_TOOLS,
     DELEGATE_TASK_SCHEMA,
@@ -43,6 +45,8 @@ def _make_mock_parent(depth=0):
     parent.providers_ignored = None
     parent.providers_order = None
     parent.provider_sort = None
+    parent.output_max_sentences = DEFAULT_OUTPUT_MAX_SENTENCES
+    parent.output_max_chars = DEFAULT_OUTPUT_MAX_CHARS
     parent._session_db = None
     parent._delegate_depth = depth
     parent._active_children = []
@@ -138,6 +142,24 @@ class TestDelegateTask(unittest.TestCase):
         self.assertEqual(result["results"][0]["summary"], "Done!")
         mock_run.assert_called_once()
 
+    def test_single_task_inherits_output_budget(self):
+        parent = _make_mock_parent(depth=0)
+        parent.output_max_sentences = 4
+        parent.output_max_chars = 600
+
+        with patch("tools.delegate_tool._load_config", return_value={}), patch("run_agent.AIAgent") as MockAgent:
+            mock_child = MagicMock()
+            mock_child.run_conversation.return_value = {
+                "final_response": "ok", "completed": True, "api_calls": 1,
+            }
+            MockAgent.return_value = mock_child
+
+            delegate_task(goal="Test output budget", parent_agent=parent)
+
+            _, kwargs = MockAgent.call_args
+            self.assertEqual(kwargs["output_max_sentences"], 4)
+            self.assertEqual(kwargs["output_max_chars"], 600)
+
     @patch("tools.delegate_tool._run_single_child")
     def test_batch_mode(self, mock_run):
         mock_run.side_effect = [
@@ -232,7 +254,7 @@ class TestDelegateTask(unittest.TestCase):
         parent.provider = "openai-codex"
         parent.api_mode = "codex_responses"
 
-        with patch("run_agent.AIAgent") as MockAgent:
+        with patch("tools.delegate_tool._load_config", return_value={}), patch("run_agent.AIAgent") as MockAgent:
             mock_child = MagicMock()
             mock_child.run_conversation.return_value = {
                 "final_response": "ok",
@@ -593,7 +615,11 @@ class TestDelegationCredentialResolution(unittest.TestCase):
             "model": "qwen2.5-coder",
             "base_url": "http://localhost:1234/v1",
         }
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-openrouter-key"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {"OPENROUTER_API_KEY": "env-openrouter-key", "OPENAI_API_KEY": ""},
+            clear=False,
+        ):
             with self.assertRaises(ValueError) as ctx:
                 _resolve_delegation_credentials(cfg, parent)
         self.assertIn("OPENAI_API_KEY", str(ctx.exception))

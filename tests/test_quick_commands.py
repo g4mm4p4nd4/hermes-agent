@@ -22,6 +22,7 @@ class TestCLIQuickCommands:
         cli.config = {"quick_commands": quick_commands}
         cli.console = MagicMock()
         cli.agent = None
+        cli.session_id = "test-session"
         cli.conversation_history = []
         return cli
 

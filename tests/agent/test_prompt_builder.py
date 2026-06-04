@@ -5,6 +5,8 @@ import importlib
 import logging
 import sys
 
+import pytest
+
 from agent.prompt_builder import (
     _scan_context_content,
     _truncate_content,
@@ -16,6 +18,10 @@ from agent.prompt_builder import (
     _strip_yaml_frontmatter,
     build_skills_system_prompt,
     build_context_files_prompt,
+    build_output_contract_prompt,
+    DEFAULT_OUTPUT_MAX_CHARS,
+    DEFAULT_OUTPUT_MAX_SENTENCES,
+    OUTPUT_BUDGET_VERSION,
     CONTEXT_FILE_MAX_CHARS,
     DEFAULT_AGENT_IDENTITY,
     MEMORY_GUIDANCE,
@@ -40,6 +46,12 @@ class TestGuidanceConstants:
     def test_session_search_guidance_is_simple_cross_session_recall(self):
         assert "relevant cross-session context exists" in SESSION_SEARCH_GUIDANCE
         assert "recent turns of the current session" not in SESSION_SEARCH_GUIDANCE
+
+    def test_output_contract_prompt_default(self):
+        prompt = build_output_contract_prompt()
+        assert f"{DEFAULT_OUTPUT_MAX_SENTENCES} sentences" in prompt
+        assert f"{DEFAULT_OUTPUT_MAX_CHARS} characters" in prompt
+        assert "expand" in prompt
 
 
 # =========================================================================
@@ -562,8 +574,12 @@ class TestBuildContextFilesPrompt:
         assert "Lowercase claude rules" in result
 
     def test_claude_md_uppercase_takes_priority(self, tmp_path):
-        (tmp_path / "CLAUDE.md").write_text("From uppercase.")
-        (tmp_path / "claude.md").write_text("From lowercase.")
+        upper = tmp_path / "CLAUDE.md"
+        lower = tmp_path / "claude.md"
+        upper.write_text("From uppercase.")
+        lower.write_text("From lowercase.")
+        if upper.samefile(lower):
+            pytest.skip("case-insensitive filesystem cannot create distinct CLAUDE.md and claude.md files")
         result = build_context_files_prompt(cwd=str(tmp_path))
         assert "From uppercase" in result
         assert "From lowercase" not in result

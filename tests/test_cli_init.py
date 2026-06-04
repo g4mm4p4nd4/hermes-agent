@@ -5,6 +5,8 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
+from agent.prompt_builder import DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -83,6 +85,39 @@ class TestMaxTurnsResolution:
         """The value passed to AIAgent must never be None (causes TypeError in run_conversation)."""
         cli = _make_cli()
         assert isinstance(cli.max_turns, int) and cli.max_turns == 90
+
+
+class TestOutputBudgetResolution:
+    """Output budget settings should come from config/env with safe fallbacks."""
+
+    def test_default_output_budget_is_integer(self):
+        cli = _make_cli()
+        assert isinstance(cli.output_max_sentences, int)
+        assert isinstance(cli.output_max_chars, int)
+        assert cli.output_max_sentences == DEFAULT_OUTPUT_MAX_SENTENCES
+        assert cli.output_max_chars == DEFAULT_OUTPUT_MAX_CHARS
+
+    def test_output_budget_env_overrides_config(self):
+        cli = _make_cli(
+            env_overrides={
+                "HERMES_OUTPUT_MAX_SENTENCES": "4",
+                "HERMES_OUTPUT_MAX_CHARS": "777",
+            },
+            config_overrides={
+                "output": {"max_sentences": 12, "max_chars": 2000}
+            },
+        )
+        assert cli.output_max_sentences == 4
+        assert cli.output_max_chars == 777
+
+    def test_output_budget_from_config_when_no_env(self):
+        cli = _make_cli(
+            config_overrides={
+                "output": {"max_sentences": 5, "max_chars": 1500},
+            }
+        )
+        assert cli.output_max_sentences == 5
+        assert cli.output_max_chars == 1500
 
 
 class TestFallbackModelDisable:

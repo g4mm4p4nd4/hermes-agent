@@ -27,6 +27,7 @@ except ImportError:
 from pathlib import Path
 from hermes_constants import get_hermes_home
 from typing import Optional
+from agent.prompt_builder import DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES
 
 from hermes_time import now as _hermes_now
 
@@ -359,6 +360,37 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         pr = _cfg.get("provider_routing", {})
         smart_routing = _cfg.get("smart_model_routing", {}) or {}
 
+        def _coerce_non_negative_int(value, default: int, minimum: int = 0) -> int:
+            """Parse int-like values without throwing; keep lower-bound semantics."""
+            try:
+                if value is None or str(value).strip() == "":
+                    return default
+                parsed = int(value)
+                return parsed if parsed >= minimum else default
+            except (TypeError, ValueError):
+                return default
+
+        output_cfg = _cfg.get("output") if isinstance(_cfg, dict) else {}
+        if not isinstance(output_cfg, dict):
+            output_cfg = {}
+
+        output_max_sentences = _coerce_non_negative_int(
+            os.getenv(
+                "HERMES_OUTPUT_MAX_SENTENCES",
+                output_cfg.get("max_sentences"),
+            ),
+            default=DEFAULT_OUTPUT_MAX_SENTENCES,
+            minimum=0,
+        )
+        output_max_chars = _coerce_non_negative_int(
+            os.getenv(
+                "HERMES_OUTPUT_MAX_CHARS",
+                output_cfg.get("max_chars"),
+            ),
+            default=DEFAULT_OUTPUT_MAX_CHARS,
+            minimum=0,
+        )
+
         from hermes_cli.runtime_provider import (
             resolve_runtime_provider,
             format_runtime_provider_error,
@@ -409,6 +441,8 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             platform="cron",
             session_id=_cron_session_id,
             session_db=_session_db,
+            output_max_sentences=output_max_sentences,
+            output_max_chars=output_max_chars,
         )
         
         result = agent.run_conversation(prompt)

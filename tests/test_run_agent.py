@@ -18,7 +18,7 @@ import pytest
 
 import run_agent
 from honcho_integration.client import HonchoClientConfig
-from run_agent import AIAgent, _inject_honcho_turn_context
+from run_agent import AIAgent, OUTPUT_BUDGET_VERSION, _inject_honcho_turn_context
 from agent.prompt_builder import DEFAULT_AGENT_IDENTITY
 
 
@@ -154,6 +154,25 @@ def test_aiagent_normalizes_opencode_go_qwen_max_before_chat_api():
         )
 
     assert agent.model == "deepseek-v4-pro"
+
+
+def test_output_budget_constructor_overrides_env_defaults():
+    with (
+        patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("run_agent.OpenAI"),
+    ):
+        agent = AIAgent(
+            api_key="test-key",
+            quiet_mode=True,
+            skip_context_files=True,
+            skip_memory=True,
+            output_max_sentences=2,
+            output_max_chars=50,
+        )
+
+    assert agent.output_max_sentences == 2
+    assert agent.output_max_chars == 50
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +621,14 @@ class TestBuildSystemPrompt:
         prompt = agent._build_system_prompt()
         # Should contain current date info like "Conversation started:"
         assert "Conversation started:" in prompt
+
+    def test_includes_output_budget_prompt(self, agent):
+        agent.output_max_sentences = 2
+        agent.output_max_chars = 100
+        prompt = agent._build_system_prompt()
+        assert "Output Budget Policy" in prompt
+        assert "2 sentences" in prompt
+        assert "roughly 100 characters" in prompt
 
 
 class TestInvalidateSystemPrompt:
@@ -1153,6 +1180,23 @@ class TestHandleMaxIterations:
         kwargs = agent.client.chat.completions.create.call_args.kwargs
         assert "reasoning" not in kwargs.get("extra_body", {})
 
+    def test_max_iteration_summary_is_truncated_when_over_budget(self, agent):
+        agent.output_max_sentences = 1
+        agent._cached_system_prompt = "You are helpful."
+        messages = [{"role": "user", "content": "do stuff"}]
+        resp = _mock_response(content="Sentence one. Sentence two. Sentence three.")
+        agent.client.chat.completions.create.return_value = resp
+
+        result = agent._handle_max_iterations(messages, 60, user_message="do stuff")
+
+        assert result == (
+            "Sentence one.\n\n[Response compacted. Reply with \"expand\" for a longer version.]"
+        )
+        assert messages[-1]["role"] == "assistant"
+        assert "Response compacted." in messages[-1]["content"]
+        assert agent.output_contract_state == f"{OUTPUT_BUDGET_VERSION}:truncated"
+        assert agent.output_budget_truncation_count == 1
+
 
 class TestRunConversation:
     """Tests for the main run_conversation method.
@@ -1197,6 +1241,69 @@ class TestRunConversation:
             result = agent.run_conversation("search something")
         assert result["final_response"] == "Done searching"
         assert result["api_calls"] == 2
+
+    def test_run_conversation_truncates_verbose_output_by_default(self, agent):
+        self._setup_agent(agent)
+        agent.output_max_sentences = 1
+        resp = _mock_response(
+            content="Sentence one. Sentence two. Sentence three.",
+            finish_reason="stop",
+        )
+        agent.client.chat.completions.create.return_value = resp
+
+        with (
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("give me status")
+        assert result["final_response"] == (
+            "Sentence one.\n\n[Response compacted. Reply with \"expand\" for a longer version.]"
+        )
+        assert result["output_budget_truncated"] is True
+        assert result["output_budget_truncation_count"] == 1
+        assert result["output_contract_state"].endswith(":truncated")
+
+    def test_run_conversation_truncates_extra_paragraphs_by_default(self, agent):
+        self._setup_agent(agent)
+        agent.output_max_sentences = 9
+        agent.output_max_chars = 1200
+        resp = _mock_response(
+            content=(
+                "One.\n\n"
+                "Two.\n\n"
+                "Three."
+            ),
+            finish_reason="stop",
+        )
+        agent.client.chat.completions.create.return_value = resp
+
+        with (
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("give me status")
+        assert result["output_budget_truncated"] is True
+        assert result["final_response"] == (
+            "One.\n\nTwo.\n\n[Response compacted. Reply with \"expand\" for a longer version.]"
+        )
+
+    def test_run_conversation_respects_expand_request(self, agent):
+        self._setup_agent(agent)
+        agent.output_max_sentences = 1
+        long_response = "Sentence one. Sentence two. Sentence three."
+        resp = _mock_response(content=long_response, finish_reason="stop")
+        agent.client.chat.completions.create.return_value = resp
+
+        with (
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("expand on this and tell me more")
+        assert result["final_response"] == long_response
+        assert result["output_budget_truncated"] is False
 
     def test_interrupt_breaks_loop(self, agent):
         self._setup_agent(agent)

@@ -32,6 +32,7 @@ import traceback
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn, MofNCompleteColumn
 from rich.console import Console
 import fire
+from agent.prompt_builder import DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES
 
 from run_agent import AIAgent
 from toolset_distributions import (
@@ -50,6 +51,17 @@ _WORKER_CONFIG = {}
 # Used for consistent schema in Arrow/Parquet (HuggingFace datasets) and for
 # filtering corrupted entries during trajectory combination.
 ALL_POSSIBLE_TOOLS = set(TOOL_TO_TOOLSET_MAP.keys())
+
+
+def _coerce_non_negative_int(value, default: int, minimum: int = 0) -> int:
+    """Parse int-like config values with a safe fallback and lower bound."""
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        parsed = int(value)
+        return parsed if parsed >= minimum else default
+    except (TypeError, ValueError):
+        return default
 
 # Default stats for tools that weren't used
 DEFAULT_TOOL_STATS = {'count': 0, 'success': 0, 'failure': 0}
@@ -303,6 +315,26 @@ def _process_single_prompt(
     try:
         # Sample toolsets from distribution for this prompt
         selected_toolsets = sample_toolsets_from_distribution(config["distribution"])
+
+        output_cfg = config.get("output") if isinstance(config, dict) else {}
+        if not isinstance(output_cfg, dict):
+            output_cfg = {}
+        output_max_sentences = _coerce_non_negative_int(
+            os.getenv(
+                "HERMES_OUTPUT_MAX_SENTENCES",
+                output_cfg.get("max_sentences"),
+            ),
+            default=DEFAULT_OUTPUT_MAX_SENTENCES,
+            minimum=0,
+        )
+        output_max_chars = _coerce_non_negative_int(
+            os.getenv(
+                "HERMES_OUTPUT_MAX_CHARS",
+                output_cfg.get("max_chars"),
+            ),
+            default=DEFAULT_OUTPUT_MAX_CHARS,
+            minimum=0,
+        )
         
         if config.get("verbose"):
             print(f"   Prompt {prompt_index}: Using toolsets {selected_toolsets}")
@@ -329,6 +361,8 @@ def _process_single_prompt(
             prefill_messages=config.get("prefill_messages"),
             skip_context_files=True,  # Don't pollute trajectories with SOUL.md/AGENTS.md
             skip_memory=True,  # Don't use persistent memory in batch runs
+            output_max_sentences=output_max_sentences,
+            output_max_chars=output_max_chars,
         )
 
         # Run the agent with task_id to ensure each task gets its own isolated VM
@@ -1282,4 +1316,3 @@ def main(
 
 if __name__ == "__main__":
     fire.Fire(main)
-

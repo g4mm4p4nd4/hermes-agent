@@ -13,6 +13,7 @@ from hermes_constants import get_hermes_home
 import copy
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from threading import Lock
@@ -423,6 +424,7 @@ class SessionManager:
         from run_agent import AIAgent
         from hermes_cli.config import load_config
         from hermes_cli.runtime_provider import resolve_runtime_provider
+        from agent.prompt_builder import DEFAULT_OUTPUT_MAX_CHARS, DEFAULT_OUTPUT_MAX_SENTENCES
 
         config = load_config()
         model_cfg = config.get("model")
@@ -456,6 +458,39 @@ class SessionManager:
             )
         except Exception:
             logger.debug("ACP session falling back to default provider resolution", exc_info=True)
+
+        output_cfg = config.get("output")
+        output_max_sentences = DEFAULT_OUTPUT_MAX_SENTENCES
+        if isinstance(output_cfg, dict):
+            output_max_sentences = output_cfg.get("max_sentences", output_max_sentences)
+        env_output_max_sentences = os.getenv("HERMES_OUTPUT_MAX_SENTENCES")
+        if env_output_max_sentences is not None:
+            output_max_sentences = env_output_max_sentences
+
+        output_max_chars = DEFAULT_OUTPUT_MAX_CHARS
+        if isinstance(output_cfg, dict):
+            output_max_chars = output_cfg.get("max_chars", output_max_chars)
+        env_output_max_chars = os.getenv("HERMES_OUTPUT_MAX_CHARS")
+        if env_output_max_chars is not None:
+            output_max_chars = env_output_max_chars
+
+        def _coerce_non_negative_int(value, fallback):
+            try:
+                parsed = int(value)
+                return parsed if parsed >= 0 else fallback
+            except (TypeError, ValueError):
+                return fallback
+
+        kwargs.update(
+            {
+                "output_max_sentences": _coerce_non_negative_int(
+                    output_max_sentences, DEFAULT_OUTPUT_MAX_SENTENCES,
+                ),
+                "output_max_chars": _coerce_non_negative_int(
+                    output_max_chars, DEFAULT_OUTPUT_MAX_CHARS,
+                ),
+            }
+        )
 
         _register_task_cwd(session_id, cwd)
         return AIAgent(**kwargs)

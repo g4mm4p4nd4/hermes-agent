@@ -1,0 +1,19 @@
+{
+  "issueIdentifier": "POR-2518",
+  "issueId": "ecfd42be-c1ea-4285-abb8-b98cacf0204a",
+  "runId": "adc797a5-1d71-4208-a37d-a8d6773c5630",
+  "repoSlug": "hermes-agent",
+  "cwd": "/Users/mnm/Documents/Github/hermes-agent",
+  "packProfile": "map",
+  "receiptPath": ".tmp/context-economy-canary/POR-2518-receipt.json",
+  "filesChanged": [
+    "docs/portfolio_os/context_economy_canary_POR-2518.md"
+  ],
+  "testsRun": [
+    {
+      "command": "source venv/bin/activate && python -c 'import json, pathlib; r=json.load(open(\".tmp/context-economy-canary/POR-2518-receipt.json\")); assert r[\"issueIdentifier\"] == \"POR-2518\"; assert r[\"issueId\"] == \"ecfd42be-c1ea-4285-abb8-b98cacf0204a\"; assert r[\"repoSlug\"] == \"hermes-agent\"; assert r[\"packProfile\"] == \"map\"; assert pathlib.Path(\"docs/portfolio_os/context_economy_canary_POR-2518.md\").is_file(); assert pathlib.Path(r[\"receiptPath\"]).is_file(); assert r[\"filesChanged\"]; assert all(t[\"exitCode\"] == 0 for t in r[\"testsRun\"])'",
+      "exitCode": 0
+    }
+  ],
+  "summary": "POR-2518 proved a map-pack-only hermes-agent strike run with an isolated documentation write, schema-valid receipt, and focused validation."
+}

@@ -329,3 +329,87 @@ class TestPersistence:
         assert restored is not None
         assert restored.agent.provider == "anthropic"
         assert restored.agent.base_url == "https://anthropic.example/v1"
+
+    def test_make_agent_uses_output_budget_from_config(self, tmp_path, monkeypatch):
+        observed = {}
+
+        def fake_resolve_runtime_provider(requested=None, **kwargs):
+            return {
+                "provider": requested or "anthropic",
+                "api_mode": "anthropic_messages",
+                "base_url": "https://anthropic.example/v1",
+                "api_key": "anthropic-key",
+                "command": None,
+                "args": [],
+            }
+
+        def fake_agent(**kwargs):
+            observed.update(kwargs)
+            return SimpleNamespace(
+                model=kwargs.get("model"),
+                provider=kwargs.get("provider"),
+                base_url=kwargs.get("base_url"),
+                api_mode=kwargs.get("api_mode"),
+            )
+
+        monkeypatch.setattr(
+            "hermes_cli.config.load_config",
+            lambda: {
+                "model": {"provider": "anthropic", "default": "claude-3.5"},
+                "output": {"max_sentences": 4, "max_chars": 777},
+            },
+        )
+        monkeypatch.setattr(
+            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            fake_resolve_runtime_provider,
+        )
+
+        with patch("run_agent.AIAgent", side_effect=fake_agent):
+            manager = SessionManager(db=SessionDB(tmp_path / "state.db"))
+            manager.create_session(cwd="/acp")
+
+        assert observed["output_max_sentences"] == 4
+        assert observed["output_max_chars"] == 777
+
+    def test_make_agent_prefers_output_env_over_config(self, tmp_path, monkeypatch):
+        observed = {}
+
+        def fake_resolve_runtime_provider(requested=None, **kwargs):
+            return {
+                "provider": requested or "anthropic",
+                "api_mode": "anthropic_messages",
+                "base_url": "https://anthropic.example/v1",
+                "api_key": "anthropic-key",
+                "command": None,
+                "args": [],
+            }
+
+        def fake_agent(**kwargs):
+            observed.update(kwargs)
+            return SimpleNamespace(
+                model=kwargs.get("model"),
+                provider=kwargs.get("provider"),
+                base_url=kwargs.get("base_url"),
+                api_mode=kwargs.get("api_mode"),
+            )
+
+        monkeypatch.setenv("HERMES_OUTPUT_MAX_SENTENCES", "9")
+        monkeypatch.setenv("HERMES_OUTPUT_MAX_CHARS", "666")
+        monkeypatch.setattr(
+            "hermes_cli.config.load_config",
+            lambda: {
+                "model": {"provider": "anthropic", "default": "claude-3.5"},
+                "output": {"max_sentences": 4, "max_chars": 777},
+            },
+        )
+        monkeypatch.setattr(
+            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            fake_resolve_runtime_provider,
+        )
+
+        with patch("run_agent.AIAgent", side_effect=fake_agent):
+            manager = SessionManager(db=SessionDB(tmp_path / "state.db"))
+            manager.create_session(cwd="/acp")
+
+        assert observed["output_max_sentences"] == 9
+        assert observed["output_max_chars"] == 666
