@@ -10,4 +10,6 @@ The Portfolio-OS adapter is a sidecar runtime. It does not replace Hermes chat, 
 - `status` reads result or dry-run artifacts.
 - `resume` reopens the saved run bundle and continues dispatch.
 
+The adapter treats Internet Pipes completeness as part of the execution contract. Launch bundles are rejected unless the bundle is `alpha_ready` or `factory_ready` with no missing stations. Validation and backfill bundles can still run while stations are missing, and Hermes preserves the station score, readiness, missing stations, and recommendations in dry-run, result, log, and README artifacts.
+
 When a task cannot be safely implemented as code, Hermes creates the corresponding docs-based validation asset. That keeps validation sprint execution moving without guessing framework-specific changes.

@@ -81,6 +81,12 @@ def _bundle(tmp_path: Path, target_repo: Path) -> dict:
             "strongest_wedge": "analytics dashboards for marketing teams",
             "paired_repos": [],
             "evidence_gate_status": "blocked",
+            "internet_pipes": {
+                "score": 63.5,
+                "readiness": "promising",
+                "missing_stations": ["differentiation"],
+                "recommendations": ["Add explicit differentiation evidence from review gaps."],
+            },
         },
         "paperclip": {
             "company_id": "company-fixture",
@@ -135,6 +141,12 @@ def _bundle(tmp_path: Path, target_repo: Path) -> dict:
             "missing_evidence": ["Need 3 buyer quotes."],
             "confidence": 0.4,
             "gate_status": "blocked",
+            "internet_pipes": {
+                "score": 63.5,
+                "readiness": "promising",
+                "missing_stations": ["differentiation"],
+                "recommendations": ["Add explicit differentiation evidence from review gaps."],
+            },
         },
         "gstack": {
             "evidence_backfill_path": str(pos_root / "data/gstack_results/fixture-validation-sprint.evidence_backfill.json"),
@@ -199,6 +211,33 @@ def test_destructive_operation_is_refused(tmp_path: Path) -> None:
     assert any("delete_repo" in error for error in errors)
 
 
+def test_launch_execution_requires_complete_internet_pipes_readiness(tmp_path: Path) -> None:
+    repo = _init_target_repo(tmp_path)
+    bundle = _bundle(tmp_path, repo)
+    bundle["opportunity"]["mandate_type"] = "launch_execution"
+
+    errors = validate_bundle(bundle)
+
+    assert "launch_execution requires Internet Pipes readiness alpha_ready or factory_ready" in errors
+    assert "launch_execution requires no missing Internet Pipes stations" in errors
+
+    bundle["opportunity"]["internet_pipes"]["readiness"] = "alpha_ready"
+    bundle["opportunity"]["internet_pipes"]["missing_stations"] = []
+    bundle["evidence"]["internet_pipes"] = dict(bundle["opportunity"]["internet_pipes"])
+
+    assert validate_bundle(bundle) == []
+
+
+def test_bundle_validation_requires_matching_internet_pipes_evidence_block(tmp_path: Path) -> None:
+    repo = _init_target_repo(tmp_path)
+    bundle = _bundle(tmp_path, repo)
+    bundle["evidence"]["internet_pipes"]["missing_stations"] = []
+
+    errors = validate_bundle(bundle)
+
+    assert "evidence.internet_pipes must match opportunity.internet_pipes" in errors
+
+
 def test_dry_run_does_not_mutate_target_repo(tmp_path: Path) -> None:
     repo = _init_target_repo(tmp_path)
     path = _write_bundle(tmp_path, repo)
@@ -208,6 +247,12 @@ def test_dry_run_does_not_mutate_target_repo(tmp_path: Path) -> None:
     after = _git(repo, "rev-parse", "HEAD")
 
     assert payload["status"] == "dry_run_complete"
+    assert payload["internet_pipes"] == {
+        "score": 63.5,
+        "readiness": "promising",
+        "missing_stations": ["differentiation"],
+        "recommendations": ["Add explicit differentiation evidence from review gaps."],
+    }
     assert before == after
     assert not (repo / "docs/business_plan.md").exists()
 
@@ -219,14 +264,21 @@ def test_dispatch_docs_only_validation_sprint_commits_result_artifact(tmp_path: 
     result = dispatch_bundle(path)
 
     assert result["status"] == "completed"
+    assert result["internet_pipes"]["readiness"] == "promising"
+    assert result["internet_pipes"]["missing_stations"] == ["differentiation"]
     assert result["commit_sha"]
     assert result["pushed_to_origin"] is False
     assert (repo / "docs/business_plan.md").exists()
     assert "Fixture Target" in (repo / "README.md").read_text(encoding="utf-8")
     assert "Portfolio-OS Business Value Hypothesis" in (repo / "README.md").read_text(encoding="utf-8")
+    assert "Internet Pipes: score=63.50, readiness=promising, missing_stations=differentiation" in (
+        repo / "README.md"
+    ).read_text(encoding="utf-8")
     result_path = tmp_path / "portfolio-os/data/hermes_results/fixture-validation-sprint.json"
     assert result_path.exists()
     assert json.loads(result_path.read_text(encoding="utf-8"))["commit_sha"] == result["commit_sha"]
+    log_path = tmp_path / "portfolio-os/data/hermes_logs/fixture-validation-sprint.log"
+    assert "internet_pipes=" in log_path.read_text(encoding="utf-8")
 
 
 def test_status_reads_result_artifact(tmp_path: Path) -> None:

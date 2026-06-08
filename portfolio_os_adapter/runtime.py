@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from portfolio_os_adapter.contract import load_bundle, validate_bundle
+from portfolio_os_adapter.contract import internet_pipes_contract, load_bundle, validate_bundle
 
 
 SECRET_PATTERNS = [
@@ -63,6 +63,7 @@ def dry_run_bundle(bundle_path: Path) -> dict[str, Any]:
         "target_repo": state.target_repo,
         "local_repo_path": str(state.local_repo_path),
         "working_branch": state.branch,
+        "internet_pipes": internet_pipes_contract(bundle),
         "tasks_planned": planned,
         "would_modify": _unique_expected_files(planned),
         "status": "dry_run_complete",
@@ -215,6 +216,8 @@ def _append_readme(root: Path, bundle: Mapping[str, Any], task: Mapping[str, Any
     if marker in existing:
         return []
     opportunity = bundle.get("opportunity", {})
+    internet_pipes = internet_pipes_contract(bundle)
+    missing = ", ".join(internet_pipes["missing_stations"]) if internet_pipes["missing_stations"] else "none"
     addition = (
         "\n\n"
         "<!-- PORTFOLIO_OS_BUSINESS_VALUE_START -->\n"
@@ -222,6 +225,7 @@ def _append_readme(root: Path, bundle: Mapping[str, Any], task: Mapping[str, Any
         f"- Niche: {opportunity.get('niche') or 'validation target'}\n"
         f"- Strongest wedge: {opportunity.get('strongest_wedge') or 'pending validation'}\n"
         f"- Evidence gate: {opportunity.get('evidence_gate_status') or 'unknown'}\n"
+        f"- Internet Pipes: score={internet_pipes['score']:.2f}, readiness={internet_pipes['readiness'] or 'unknown'}, missing_stations={missing}\n"
         "- This section is appended by Hermes-Agent from a Portfolio-OS validation bundle and should be treated as a hypothesis until evidence gates clear.\n"
         "<!-- PORTFOLIO_OS_BUSINESS_VALUE_END -->\n"
     )
@@ -291,6 +295,7 @@ def _result_payload(bundle: Mapping[str, Any], state: ExecutionState) -> dict[st
         "branch": state.branch,
         "commit_sha": state.commit_sha,
         "pushed_to_origin": state.pushed_to_origin,
+        "internet_pipes": internet_pipes_contract(bundle),
         "files_changed": sorted(set(state.files_changed)),
         "tasks_completed": [item for item in state.tasks_completed if item],
         "tasks_failed": state.tasks_failed,
@@ -312,6 +317,7 @@ def _write_log(bundle: Mapping[str, Any], state: ExecutionState, result: Mapping
         f"status={state.status}",
         f"target_repo={state.target_repo}",
         f"branch={state.branch}",
+        f"internet_pipes={json.dumps(internet_pipes_contract(bundle), sort_keys=True)}",
         f"commit_sha={state.commit_sha or 'n/a'}",
         f"result={json.dumps(result, sort_keys=True)}",
     ]

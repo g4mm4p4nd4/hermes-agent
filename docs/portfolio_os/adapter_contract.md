@@ -22,6 +22,13 @@ hermes portfolio-os validate-bundle --bundle <path>
 
 Hermes refuses bundles that request repository deletion, history rewrite, license removal, committed secrets, destructive filesystem operations outside the selected target repo, or unsafe local paths. `write_policy.local_only` and `push_policy.no_push` override push behavior.
 
+Hermes also validates the Internet Pipes station contract carried by Portfolio OS:
+
+- `opportunity.internet_pipes` is required.
+- `evidence.internet_pipes` must match the opportunity block.
+- `launch_execution` requires readiness `alpha_ready` or `factory_ready` and no missing stations.
+- `validation_sprint`, `research_backfill`, and `internal_leverage` may run with missing stations, but the station blockers stay visible in dry-run, result, log, and generated README artifacts.
+
 ## Result Artifact
 
 Dispatch writes the bundle `outputs.result_path`, normally:
@@ -30,4 +37,4 @@ Dispatch writes the bundle `outputs.result_path`, normally:
 /Users/mnm/Documents/Github/portfolio-os/data/hermes_results/<run_id>.json
 ```
 
-The result includes run id, target repo, branch, commit, push state, changed files, completed/failed tasks, tests, QA status, blockers, next actions, Paperclip execution id, Paperclip issue ids, and GStack artifact pointers.
+The result includes run id, target repo, branch, commit, push state, Internet Pipes score/readiness/missing stations/recommendations, changed files, completed/failed tasks, tests, QA status, blockers, next actions, Paperclip execution id, Paperclip issue ids, and GStack artifact pointers.

@@ -8,6 +8,15 @@ from typing import Any, Mapping
 
 HERMES_TASK_BUNDLE_SCHEMA_VERSION = "pos.hermes_task_bundle.v1"
 MANDATE_TYPES = {"launch_execution", "validation_sprint", "research_backfill", "internal_leverage"}
+INTERNET_PIPES_STATIONS = {
+    "generation",
+    "validation",
+    "evaluation",
+    "differentiation",
+    "visualization",
+    "recommendation",
+}
+INTERNET_PIPES_LAUNCH_READY = {"alpha_ready", "factory_ready"}
 TASK_TYPES = {
     "code_change",
     "docs",
@@ -34,6 +43,39 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 
 def _list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or "").split("|") if item.strip()]
+
+
+def _float_value(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _canonical_internet_pipes(raw: Mapping[str, Any]) -> dict[str, Any]:
+    score = _float_value(raw.get("score"))
+    return {
+        "score": round(score if score is not None else 0.0, 2),
+        "readiness": str(raw.get("readiness", "") or "").strip(),
+        "missing_stations": _string_list(raw.get("missing_stations")),
+        "recommendations": _string_list(raw.get("recommendations")),
+    }
+
+
+def internet_pipes_contract(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the normalized Internet Pipes block carried by a POS task bundle."""
+    opportunity = _mapping(payload.get("opportunity"))
+    evidence = _mapping(payload.get("evidence"))
+    opportunity_contract = _mapping(opportunity.get("internet_pipes"))
+    evidence_contract = _mapping(evidence.get("internet_pipes"))
+    raw = opportunity_contract or evidence_contract
+    return _canonical_internet_pipes(raw)
 
 
 def load_bundle(path: Path) -> dict[str, Any]:
@@ -80,6 +122,7 @@ def validate_bundle(payload: Mapping[str, Any], *, require_target_exists: bool =
     mandate_type = str(opportunity.get("mandate_type", "")).strip()
     if mandate_type not in MANDATE_TYPES:
         errors.append(f"opportunity.mandate_type must be one of {sorted(MANDATE_TYPES)}")
+    _validate_internet_pipes_contract(payload, mandate_type, errors)
 
     tasks = _list(payload.get("tasks"))
     if not tasks:
@@ -110,6 +153,42 @@ def validate_bundle(payload: Mapping[str, Any], *, require_target_exists: bool =
     if missing:
         errors.append(f"safety.forbidden_operations missing {sorted(missing)}")
     return errors
+
+
+def _validate_internet_pipes_contract(payload: Mapping[str, Any], mandate_type: str, errors: list[str]) -> None:
+    opportunity = _mapping(payload.get("opportunity"))
+    evidence = _mapping(payload.get("evidence"))
+    opportunity_contract = _mapping(opportunity.get("internet_pipes"))
+    evidence_contract = _mapping(evidence.get("internet_pipes"))
+    if not opportunity_contract:
+        errors.append("opportunity.internet_pipes is required")
+        return
+    if not evidence_contract:
+        errors.append("evidence.internet_pipes is required")
+
+    if "score" not in opportunity_contract:
+        errors.append("opportunity.internet_pipes.score is required")
+    elif _float_value(opportunity_contract.get("score")) is None:
+        errors.append("opportunity.internet_pipes.score must be numeric")
+    readiness = str(opportunity_contract.get("readiness", "") or "").strip()
+    if not readiness:
+        errors.append("opportunity.internet_pipes.readiness is required")
+    missing_stations = _string_list(opportunity_contract.get("missing_stations"))
+    unknown = sorted(set(missing_stations) - INTERNET_PIPES_STATIONS)
+    if unknown:
+        errors.append(f"opportunity.internet_pipes.missing_stations contains unknown stations: {unknown}")
+    recommendations = opportunity_contract.get("recommendations")
+    if recommendations is not None and not isinstance(recommendations, list):
+        errors.append("opportunity.internet_pipes.recommendations must be a list when present")
+
+    if evidence_contract and _canonical_internet_pipes(evidence_contract) != _canonical_internet_pipes(opportunity_contract):
+        errors.append("evidence.internet_pipes must match opportunity.internet_pipes")
+
+    if mandate_type == "launch_execution":
+        if readiness not in INTERNET_PIPES_LAUNCH_READY:
+            errors.append("launch_execution requires Internet Pipes readiness alpha_ready or factory_ready")
+        if missing_stations:
+            errors.append("launch_execution requires no missing Internet Pipes stations")
 
 
 def _inside(path: Path, root: Path) -> bool:
