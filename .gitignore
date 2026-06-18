@@ -54,6 +54,7 @@ environments/benchmarks/evals/
 # Release script temp files
 .release_notes.md
 mini-swe-agent/
+*.key
 
 # Nix
 .direnv/

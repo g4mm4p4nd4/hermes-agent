@@ -106,6 +106,11 @@ def _parse_api_mode(raw: Any) -> Optional[str]:
     return None
 
 
+def _model_config_api_mode_applies(model_cfg: Dict[str, Any], provider: str) -> bool:
+    cfg_provider = str(model_cfg.get("provider") or "").strip().lower()
+    return not cfg_provider or cfg_provider == "auto" or cfg_provider == provider
+
+
 def resolve_requested_provider(requested: Optional[str] = None) -> str:
     """Resolve provider request from explicit arg, config, then env."""
     if requested and requested.strip():
@@ -400,7 +405,11 @@ def resolve_runtime_provider(
             api_mode = _copilot_runtime_api_mode(model_cfg, creds.get("api_key", ""))
         else:
             # Check explicit api_mode from model config first
-            configured_mode = _parse_api_mode(model_cfg.get("api_mode"))
+            configured_mode = (
+                _parse_api_mode(model_cfg.get("api_mode"))
+                if _model_config_api_mode_applies(model_cfg, provider)
+                else None
+            )
             if configured_mode:
                 api_mode = configured_mode
             # Auto-detect Anthropic-compatible endpoints by URL convention

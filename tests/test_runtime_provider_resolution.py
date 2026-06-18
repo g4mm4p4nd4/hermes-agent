@@ -534,6 +534,26 @@ def test_minimax_explicit_api_mode_respected(monkeypatch):
     assert resolved["api_mode"] == "chat_completions"
 
 
+def test_minimax_ignores_api_mode_for_different_configured_provider(monkeypatch):
+    """A saved api_mode for another provider must not leak into explicit MiniMax runs."""
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "minimax")
+    monkeypatch.setattr(
+        rp,
+        "_get_model_config",
+        lambda: {
+            "provider": "opencode-go",
+            "api_mode": "chat_completions",
+        },
+    )
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-minimax-key")
+    monkeypatch.delenv("MINIMAX_BASE_URL", raising=False)
+
+    resolved = rp.resolve_runtime_provider(requested="minimax")
+
+    assert resolved["provider"] == "minimax"
+    assert resolved["api_mode"] == "anthropic_messages"
+
+
 def test_alibaba_default_anthropic_endpoint_uses_anthropic_messages(monkeypatch):
     """Alibaba with default /apps/anthropic URL should use anthropic_messages mode."""
     monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "alibaba")
