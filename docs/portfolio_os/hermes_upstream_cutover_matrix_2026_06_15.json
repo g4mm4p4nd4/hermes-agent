@@ -1,0 +1,377 @@
+{
+  "schema_version": "hermes.upstream_cutover_matrix.v1",
+  "generated_at": "2026-06-15",
+  "local": {
+    "branch": "main",
+    "commit": "8bba7a17c263874fa24eb3fa64c507b847ccc0df",
+    "version": "0.4.0",
+    "ahead_of_upstream": 8,
+    "current_adapter_entry": "./bin/hermes portfolio-os",
+    "external_paperclip_adapter": "/Users/mnm/Documents/Github/hermes-paperclip-adapter",
+    "cockpit_adapter_registration": "/Users/mnm/Documents/Github/.paperclip/portfolio-os-cockpit/adapter-plugins.json",
+    "focused_tests": "46 passed: tests/test_runtime_provider_resolution.py tests/test_portfolio_os_adapter.py"
+  },
+  "upstream": {
+    "ref": "upstream/main",
+    "commit": "ae433634db562e644175d39537ef6b811a381f3f",
+    "version": "0.16.0",
+    "behind_count_from_local": 9030,
+    "describe": "v2026.6.5-1033-gae433634d"
+  },
+  "graphify_native_status": {
+    "available_binary": "/Users/mnm/.local/bin/graphify",
+    "observed_capability": "query/install/benchmark/hook integration only",
+    "limitation": "native extraction/build commands from the Graphify skill reference were not available",
+    "artifact_strategy": "manual Graphify-style maps built from git, file reads, and test evidence"
+  },
+  "red_team_blockers": [
+    {
+      "id": "RT-P0-01",
+      "severity": "P0",
+      "title": "Upstream CLI lacks the current fallback-disable contract",
+      "evidence": "No upstream/main match for disable-fallback-model or HERMES_DISABLE_FALLBACK_MODEL; current local chat help includes --disable-fallback-model; external adapter emits the flag and env var by default.",
+      "required_gate": "Preserve the flag or replace it with an upstream-compatible hard-stop contract, then run external adapter testEnvironment against the cutover Hermes binary."
+    },
+    {
+      "id": "RT-P0-02",
+      "severity": "P0",
+      "title": "Direct merge has concrete conflicts in production-sensitive surfaces",
+      "evidence": "git merge-tree --write-tree --name-only HEAD upstream/main exits 1 with conflicts in CLI, gateway, run_agent, hermes_state, config, ACP, pyproject, provider docs, and tests.",
+      "required_gate": "Use an upstream-based cutover branch and require a conflict-retirement ledger per file."
+    },
+    {
+      "id": "RT-P0-03",
+      "severity": "P0",
+      "title": "Live Paperclip inventory is not yet a hard preflight",
+      "evidence": "Existing docs require canary and guard, but not live counts for hermes_local agents, active/queued runs, heartbeats, scheduled wakes, provider approvals, and command paths.",
+      "required_gate": "Snapshot live Paperclip DB/config and publish pre/post inventory before selecting the new Hermes command path."
+    },
+    {
+      "id": "RT-P0-04",
+      "severity": "P0",
+      "title": "Paid-provider denial is described but not mechanically proven",
+      "evidence": "Paperclip requires MiniMax-first recovery and no post-MiniMax OpenAI/Claude/Gemini fallback without explicit approval; upstream fallback_providers can continue if configured.",
+      "required_gate": "Add tests that simulate MiniMax exhaustion and assert a blocked result with no denied provider invocation absent approval."
+    },
+    {
+      "id": "RT-P0-05",
+      "severity": "P0",
+      "title": "State database migration and adapter accounting are unproven",
+      "evidence": "Local hermes_state.py is schema 7; upstream is schema 16; the external adapter reads state.db usage/cost/session fields.",
+      "required_gate": "Migrate a copied production state.db with upstream code and verify external adapter usage extraction plus source=paperclip session behavior."
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "provider_runtime_core",
+      "classification": "replace_local_with_upstream",
+      "local_state": "Fork patches cover OpenCode metadata, OpenCode Go alias handling, and a local stale-api-mode guard.",
+      "upstream_state": "Upstream has provider profiles, model-specific api_mode inference, and _provider_supports_explicit_api_mode.",
+      "what_we_gain": "Broader provider support, better base_url/api_mode isolation, OpenCode Zen/Go first-class profiles, and fewer fork-only provider patches.",
+      "what_we_could_lose": "A local MiniMax-specific regression could disappear if not carried into upstream tests.",
+      "cutover_action": "Use upstream runtime_provider.py and models.py, then port only missing regressions.",
+      "validation": [
+        "Run upstream runtime provider tests.",
+        "Add or retain MiniMax stale-api-mode regression.",
+        "Add OpenCode Go Qwen alias/model-mode regression if upstream does not already cover the exact alias."
+      ]
+    },
+    {
+      "id": "minimax_recovery_lane",
+      "classification": "upgrade_with_policy_guard",
+      "local_state": "Paperclip policy treats MiniMax as the first automatic recovery lane and stops after MiniMax exhaustion.",
+      "upstream_state": "MiniMax, MiniMax CN, and MiniMax OAuth are first-class provider profiles with Anthropic-compatible defaults and prompt-cache handling.",
+      "what_we_gain": "Cleaner MiniMax routing and less custom provider code.",
+      "what_we_could_lose": "Upstream's generic fallback chain can continue beyond MiniMax if configured that way.",
+      "cutover_action": "Adopt upstream MiniMax provider code, but enforce a Paperclip adapter gate that blocks after MiniMax failure unless explicit paid-tier approval is present.",
+      "validation": [
+        "Simulate primary provider failure.",
+        "Simulate MiniMax unavailable/exhausted.",
+        "Assert blocked result artifact is written.",
+        "Assert no OpenAI, Claude, Gemini, or other paid provider client is invoked without approval."
+      ]
+    },
+    {
+      "id": "opencode_go",
+      "classification": "replace_local_with_upstream",
+      "local_state": "Local fork added OpenCode provider metadata and Qwen OA-compatible alias handling.",
+      "upstream_state": "OpenCode Zen and OpenCode Go are bundled model-provider profiles with model-specific routing for Claude, Codex, GPT, MiniMax, GLM, Kimi, DeepSeek, and Qwen-family cache markers.",
+      "what_we_gain": "Official provider profile behavior, token caps for known models, and model-derived api_mode rather than stale persisted api_mode.",
+      "what_we_could_lose": "A local Paperclip-specific model alias might not be covered by upstream naming normalization.",
+      "cutover_action": "Prefer upstream OpenCode Go profile and add an alias compatibility test for any exact Paperclip model slug.",
+      "validation": [
+        "Run OpenCode Go provider resolution tests.",
+        "Assert Qwen-family models use the intended OpenAI-compatible mode and cache marker path.",
+        "Assert Anthropic-wire models strip trailing /v1 when needed."
+      ]
+    },
+    {
+      "id": "fallback_disable_control",
+      "classification": "preserve_as_paperclip_guard",
+      "local_state": "Local fork includes fallback disable control.",
+      "upstream_state": "Upstream has fallback_providers and a fallback CLI manager, but no observed equivalent to a Paperclip hard stop after MiniMax.",
+      "what_we_gain": "Ordered fallback chains across CLI, gateway, cron, and subagents.",
+      "what_we_could_lose": "Paperclip could spend or run against disallowed providers if upstream fallback is accepted unguarded.",
+      "cutover_action": "Implement a Paperclip-specific fallback policy layer rather than relying on upstream global fallback semantics.",
+      "validation": [
+        "Test no fallback configured.",
+        "Test MiniMax-only fallback.",
+        "Test OpenAI/Claude/Gemini fallback denied without approval.",
+        "Test explicit approval permits only the named approved provider and records the approval source."
+      ]
+    },
+    {
+      "id": "paperclip_portfolio_adapter",
+      "classification": "must_port",
+      "local_state": "portfolio_os_adapter provides validate-bundle, dry-run, dispatch, status, and resume.",
+      "upstream_state": "No Portfolio-OS or Paperclip adapter was found on upstream/main.",
+      "what_we_gain": "Can re-home adapter as a plugin using upstream CLI command registration.",
+      "what_we_could_lose": "Direct upstream adoption deletes adapter package, docs, and wrapper.",
+      "cutover_action": "Create bundled or explicitly enabled plugin that registers hermes portfolio-os through ctx.register_cli_command.",
+      "validation": [
+        "hermes portfolio-os --help exposes all current subcommands.",
+        "Existing adapter tests pass on upstream branch.",
+        "Paperclip can invoke the new command path without changing bundle payloads."
+      ]
+    },
+    {
+      "id": "external_paperclip_adapter",
+      "classification": "must_preserve_and_test",
+      "local_state": "The cockpit registers /Users/mnm/Documents/Github/hermes-paperclip-adapter as type hermes_local version 0.1.0.",
+      "upstream_state": "Hermes upstream does not include or replace this external Paperclip adapter.",
+      "what_we_gain": "Can point the adapter at a fresher Hermes core once the CLI contract is preserved.",
+      "what_we_could_lose": "Paperclip runs can fail if the new Hermes command path, --disable-fallback-model flag, provider flags, session behavior, or state.db usage accounting changes.",
+      "cutover_action": "Keep the external adapter installed, update its command path only after the upstream Hermes environment passes adapter tests, and preserve the hermes_local type contract.",
+      "validation": [
+        "Run npm test in /Users/mnm/Documents/Github/hermes-paperclip-adapter.",
+        "Confirm adapter-plugins.json still registers type hermes_local.",
+        "Run createServerAdapter().testEnvironment against the new Hermes command.",
+        "Confirm the adapter still emits --disable-fallback-model by default or uses an equivalent upstream-safe guard."
+      ]
+    },
+    {
+      "id": "bundle_contract",
+      "classification": "must_preserve",
+      "local_state": "Validates pos.hermes_task_bundle.v1, mandate types, tasks, safety, allowed roots, and target existence.",
+      "upstream_state": "No equivalent contract layer was found.",
+      "what_we_gain": "No upstream replacement; all value comes from preserving the current contract.",
+      "what_we_could_lose": "Invalid or unsafe Paperclip bundles could execute if validation is weakened.",
+      "cutover_action": "Port contract.py unchanged first, then improve only with backward-compatible checks.",
+      "validation": [
+        "Golden valid bundle passes.",
+        "Wrong schema version fails.",
+        "Forbidden operation fails.",
+        "Outside allowed roots fails.",
+        "local_only plus push fails."
+      ]
+    },
+    {
+      "id": "internet_pipes_contract",
+      "classification": "must_preserve",
+      "local_state": "Launch execution requires Internet Pipes readiness alpha_ready or factory_ready and no missing stations.",
+      "upstream_state": "No equivalent upstream readiness gate was found.",
+      "what_we_gain": "Paperclip execution remains tied to the current business readiness model.",
+      "what_we_could_lose": "Launch bundles with incomplete generation, validation, evaluation, differentiation, visualization, or recommendation stations could dispatch.",
+      "cutover_action": "Keep Internet Pipes validation in the Paperclip plugin contract layer.",
+      "validation": [
+        "alpha_ready launch with no missing stations passes.",
+        "launch_execution with missing station fails.",
+        "evidence.internet_pipes mismatch fails."
+      ]
+    },
+    {
+      "id": "result_artifacts",
+      "classification": "must_preserve",
+      "local_state": "Adapter writes dry-run status, result JSON, execution log, QA status, blockers, next_actions, Paperclip ids, and GStack artifacts.",
+      "upstream_state": "No equivalent Paperclip result schema exists.",
+      "what_we_gain": "Can formalize schema as plugin output contract.",
+      "what_we_could_lose": "Paperclip cockpit may lose status visibility or misread a run as healthy when required fields disappear.",
+      "cutover_action": "Add fixture-based artifact schema tests and keep field names stable.",
+      "validation": [
+        "Dry-run artifact equals current schema.",
+        "Completed dispatch artifact equals current schema.",
+        "Blocked dispatch artifact includes auditable blocker and no false success."
+      ]
+    },
+    {
+      "id": "external_adapter_model_discovery",
+      "classification": "must_preserve",
+      "local_state": "The external adapter lists live OpenCode Go and Zen models, hides unsafe choices, requires deepseek-v4-pro/deepseek-v4-flash on Go and deepseek-v4-flash-free on Zen, and maps qwen3.7-max to deepseek-v4-pro.",
+      "upstream_state": "Upstream provider profiles improve OpenCode routing but do not replace Paperclip's UI/runtime model availability gate.",
+      "what_we_gain": "Upstream OpenCode Go support can reduce local Hermes routing patches.",
+      "what_we_could_lose": "Paperclip may advertise unavailable or unsafe models if external adapter checks are dropped because upstream provider support appears sufficient.",
+      "cutover_action": "Keep external adapter model discovery and required-lane checks until a live canary proves upstream provider discovery covers the same Paperclip contract.",
+      "validation": [
+        "Mock Go/Zen /models endpoints and run adapter tests.",
+        "Verify qwen3.7-max remains excluded from selectable Hermes oa-compat candidates.",
+        "Verify required missing models make testEnvironment fail before a real Hermes run starts."
+      ]
+    },
+    {
+      "id": "adapter_pause_on_failure",
+      "classification": "must_add_or_verify",
+      "local_state": "Paperclip policy requires pausing the Hermes adapter path when inference availability or provider recovery fails.",
+      "upstream_state": "Generic fallback recovery is not a Paperclip scheduler pause mechanism.",
+      "what_we_gain": "A clearer separation between model fallback and operational dispatch safety.",
+      "what_we_could_lose": "Scheduled Paperclip runs could keep firing into a broken or disallowed provider state.",
+      "cutover_action": "Add a Paperclip plugin failure state that writes a blocked result and emits or records an adapter pause signal consumed by Paperclip.",
+      "validation": [
+        "Inference preflight failure writes blocked result.",
+        "MiniMax exhaustion writes blocked result.",
+        "Paperclip scheduler or cockpit records the pause condition.",
+        "Manual resume requires explicit operator action."
+      ]
+    },
+    {
+      "id": "inference_preflight",
+      "classification": "must_add_or_verify",
+      "local_state": "The external adapter has testEnvironment model checks and selected-provider completion probes; the Python Portfolio-OS adapter does not yet have an equivalent pre-dispatch probe.",
+      "upstream_state": "Upstream validates provider config in many places but does not know Paperclip dispatch semantics.",
+      "what_we_gain": "Prevents bundle execution from starting when provider routing is already known bad.",
+      "what_we_could_lose": "A bundle could mutate a target repo before discovering the configured inference path is unavailable.",
+      "cutover_action": "Keep external adapter preflight behavior and add pre-dispatch provider resolution plus optional lightweight live probe to the Paperclip/Portfolio plugin before target repo mutation.",
+      "validation": [
+        "Missing required provider credential blocks before target repo mutation.",
+        "Stale api_mode is corrected or rejected before dispatch.",
+        "Live probe can be disabled in tests and enabled in production canary."
+      ]
+    },
+    {
+      "id": "acp_adapter",
+      "classification": "replace_local_with_upstream",
+      "local_state": "Local fork patched ACP auth method schema compatibility.",
+      "upstream_state": "Upstream has broader ACP auth/session support and tests.",
+      "what_we_gain": "Official ACP compatibility and richer startup/auth capabilities.",
+      "what_we_could_lose": "Any local client relying on the old exact auth payload should be smoke-tested.",
+      "cutover_action": "Use upstream ACP code and run current ACP tests plus a local client smoke.",
+      "validation": [
+        "Run upstream ACP auth tests.",
+        "Launch ACP adapter against the local editor/client path.",
+        "Confirm configured-provider and terminal-setup auth methods show correctly."
+      ]
+    },
+    {
+      "id": "output_budget_contract",
+      "classification": "decide_scope",
+      "local_state": "Local fork has output.max_sentences, output.max_chars, HERMES_OUTPUT_MAX_* vars, compacted response suffix, and tests across CLI, gateway, ACP, delegate, streaming, cron, RL.",
+      "upstream_state": "Upstream has max_output_tokens and provider cap handling but not the exact compact-response contract.",
+      "what_we_gain": "Upstream token handling is more mature at provider-request level.",
+      "what_we_could_lose": "Compact Paperclip artifacts or operator responses may become longer and less predictable.",
+      "cutover_action": "Prefer adapter-local shaping for Paperclip artifacts unless global compact output is still a product requirement.",
+      "validation": [
+        "If adapter-local: assert result/log artifacts are bounded.",
+        "If global: port current tests to upstream conversation-loop architecture.",
+        "Confirm prompt caching is not broken by post-hoc context mutation."
+      ]
+    },
+    {
+      "id": "packaging_environment",
+      "classification": "upgrade_with_rebuild",
+      "local_state": "Local venv reports Hermes 0.4.0 and has no python -m pip module.",
+      "upstream_state": "Upstream uses exact pins, uv.lock, plugin package data, and Python >=3.11,<3.14.",
+      "what_we_gain": "Reproducible dependency set and smaller supply-chain blast radius.",
+      "what_we_could_lose": "Mutating the old venv in place is brittle and may fail without pip.",
+      "cutover_action": "Create a fresh upstream environment using upstream's documented uv/install path.",
+      "validation": [
+        "hermes --version reports 0.16.0 cutover build.",
+        "python import smoke for core packages passes.",
+        "Plugin package data and Paperclip plugin are included in editable and wheel installs."
+      ]
+    },
+    {
+      "id": "plugin_enablement",
+      "classification": "must_configure",
+      "local_state": "Paperclip command is available through local wrapper.",
+      "upstream_state": "Standalone plugins are opt-in through plugins.enabled; built-in model-provider plugins are handled separately.",
+      "what_we_gain": "Paperclip integration can be isolated from core CLI code.",
+      "what_we_could_lose": "Command disappears if plugin is not enabled or bundled correctly.",
+      "cutover_action": "Add setup/migration step that enables the Paperclip plugin for the production Hermes profile.",
+      "validation": [
+        "hermes plugins list shows Paperclip plugin enabled.",
+        "hermes portfolio-os --help works in the same environment Paperclip uses.",
+        "HERMES_SAFE_MODE behavior is documented as disabling plugin command availability."
+      ]
+    },
+    {
+      "id": "gateway_and_platform_adapters",
+      "classification": "review_before_enabling",
+      "local_state": "Current Paperclip use depends on adapter CLI and cockpit execution, not upstream's full gateway/plugin platform expansion.",
+      "upstream_state": "Gateway/platform surfaces expanded substantially and moved toward plugins.",
+      "what_we_gain": "More supported adapters and operational surfaces.",
+      "what_we_could_lose": "New services, ports, or platform hooks could collide with Paperclip cockpit assumptions if enabled blindly.",
+      "cutover_action": "Leave unrelated gateway/platform plugins disabled during first cutover unless Paperclip explicitly needs them.",
+      "validation": [
+        "List enabled plugins.",
+        "Check active ports/processes before and after canary.",
+        "Run Paperclip guard after enabling only required surfaces."
+      ]
+    },
+    {
+      "id": "docs_and_operator_contract",
+      "classification": "must_update",
+      "local_state": "Docs under docs/portfolio_os define adapter contract and upgrade decisions, but upstream deletes them unless reintroduced.",
+      "upstream_state": "Upstream has plugin developer docs but no Paperclip-specific operator runbook.",
+      "what_we_gain": "Can align Paperclip docs with official plugin terminology.",
+      "what_we_could_lose": "Operators lose the exact contract and rollback instructions.",
+      "cutover_action": "Port docs into the Paperclip plugin docs or docs/portfolio_os in the cutover branch.",
+      "validation": [
+        "Docs cover installation, enablement, commands, bundle schema, fallback policy, canary, rollback, and hard stops.",
+        "Commands in docs are exercised in tests or canary."
+      ]
+    },
+    {
+      "id": "test_strategy",
+      "classification": "must_expand",
+      "local_state": "Focused local tests pass for runtime provider and Portfolio-OS adapter.",
+      "upstream_state": "Upstream test suite is much larger and organized under newer paths.",
+      "what_we_gain": "More coverage for provider routing, fallback, ACP, packaging, gateway, and plugins.",
+      "what_we_could_lose": "A green old focused suite is not enough to prove the upstream cutover.",
+      "cutover_action": "Run layered tests on the cutover branch before live canary.",
+      "validation": [
+        "Runtime provider tests.",
+        "Provider fallback tests.",
+        "Paperclip plugin CLI tests.",
+        "Bundle contract tests.",
+        "Adapter artifact golden tests.",
+        "ACP auth tests.",
+        "Full non-integration suite before production."
+      ]
+    },
+    {
+      "id": "live_canary",
+      "classification": "required_before_cutover",
+      "local_state": "Paperclip currently relies on live state, receipts, and guard evidence.",
+      "upstream_state": "Upstream cannot prove Paperclip correctness without a Paperclip canary.",
+      "what_we_gain": "Real confidence that adapter, provider policy, and cockpit visibility survived the upgrade.",
+      "what_we_could_lose": "Repo mutations, missing status artifacts, or unauthorized provider attempts if the canary is skipped.",
+      "cutover_action": "Run staged canary: validate fixture, dry-run, disposable target dispatch, real low-risk target no-push dispatch, then guard.",
+      "validation": [
+        "All canary artifacts have expected schema.",
+        "Provider logs show allowed provider path only.",
+        "Paperclip cockpit guard is green after the new Hermes path is selected."
+      ]
+    },
+    {
+      "id": "rollback",
+      "classification": "must_preserve_until_live_green",
+      "local_state": "Current main and venv remain available.",
+      "upstream_state": "Cutover branch should be separate from current production path.",
+      "what_we_gain": "Fast recovery if upstream cutover fails a hard stop.",
+      "what_we_could_lose": "In-place replacement could strand Paperclip without a known-good Hermes path.",
+      "cutover_action": "Do not mutate current main/venv for production until upstream branch passes canary; keep Paperclip path switch reversible.",
+      "validation": [
+        "Rollback command/path documented.",
+        "Old ./bin/hermes path still works before final switch.",
+        "Hard-stop failures trigger rollback rather than partial operation."
+      ]
+    }
+  ],
+  "recommended_cutover_summary": [
+    "Base the new branch on upstream/main.",
+    "Rebuild the environment from upstream dependency rules.",
+    "Port Paperclip/Portfolio-OS adapter as an upstream plugin.",
+    "Adopt upstream provider runtime, MiniMax, OpenCode Go, ACP, and packaging.",
+    "Preserve Paperclip-specific bundle, artifact, Internet Pipes, inference preflight, adapter pause, and fallback hard-stop policy.",
+    "Run layered tests and a live Paperclip canary before switching production."
+  ]
+}
