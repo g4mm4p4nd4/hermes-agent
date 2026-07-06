@@ -131,10 +131,37 @@ Required fix:
 - Add configured context-pack inventory entries or explicit receipt substitutes for these repos/tools.
 - Avoid injecting their full code into every task. Use map/delta and command-reality receipts unless implementation work in that repo is required.
 
+## P1-008: Incremental Comment Fetches Could 500 During Heartbeats
+
+Severity: High
+Status: fixed in code, pending Paperclip restart/deploy
+
+Evidence:
+
+- Runtime log `/tmp/paperclip-screen-fallback.log` showed `GET /api/issues/:id/comments?after=<comment-id>&order=asc` returning 500.
+- The driver error was `Received an instance of Date` while binding the anchor timestamp in a raw SQL cursor comparison.
+- This blocks comment-driven wake context and can cause agents to miss the newest human or agent comments.
+
+Fix applied:
+
+- Commit `61b9fdae9 fix(issues): normalize comment cursor timestamps`.
+- Added `issueCommentCursorTimestamp()` to normalize Date anchors before raw SQL binding.
+- Added an embedded Postgres regression test for ascending and descending cursor pagination.
+
+Verification:
+
+```bash
+pnpm --filter @paperclipai/server exec vitest run src/__tests__/context-economy-live-canary.test.ts src/__tests__/heartbeat-context-economy.test.ts src/__tests__/issues-service.test.ts --testTimeout=30000
+pnpm --filter @paperclipai/server typecheck
+```
+
+Result: both passed.
+
 ## Next Implementation Order
 
 1. Restart or redeploy Paperclip after the canary-target fix is committed.
 2. Force a context-economy canary ensure against all seven targets and verify no stale venture pack can pass silently.
-3. Implement blocker fingerprint no-op suppression for repeated credential, quota, and warm-up blockers.
-4. Add Graphify/GBrain/ScrapeGraphAI validator receipts to the research and council routines.
-5. Repair paused, terminated, and errored company agents with self-heal rules tied to company go-live gaps.
+3. Validate incremental comment fetches after restart by hitting the affected comments endpoint through the authenticated UI/API path.
+4. Implement blocker fingerprint no-op suppression for repeated credential, quota, and warm-up blockers.
+5. Add Graphify/GBrain/ScrapeGraphAI validator receipts to the research and council routines.
+6. Repair paused, terminated, and errored company agents with self-heal rules tied to company go-live gaps.

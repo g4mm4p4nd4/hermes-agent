@@ -63,6 +63,29 @@ Open routine issues:
 - `PORA-1957 Council Chamber :: Existing Venture Gate`, `in_progress`, updated `2026-07-05T13:32:57.099Z`.
 - `PORA-1936 Signal Desk :: Evidence Intake Gate`, `in_progress`, updated `2026-07-06T00:37:40.657Z`.
 
+## Live Log Failure Found During Restart Prep
+
+Paperclip log path: `/tmp/paperclip-screen-fallback.log`
+
+Observed failure:
+
+```text
+GET /api/issues/34d9b7f4-3b65-4d88-b8e5-a66e7146834c/comments?after=6ac3764a-2480-406c-a0fb-ffe1dcb6cbf4&order=asc 500
+TypeError [ERR_INVALID_ARG_TYPE]: The "string" argument must be of type string or an instance of Buffer or ArrayBuffer. Received an instance of Date
+```
+
+Cause:
+
+- `issueService.listComments()` selected the anchor comment timestamp as a JavaScript `Date`.
+- The code embedded that `Date` directly into a raw SQL cursor comparison.
+- The `postgres` driver rejected the Date binding in that raw SQL fragment.
+
+Fix applied:
+
+- Commit `61b9fdae9 fix(issues): normalize comment cursor timestamps`.
+- Normalize the anchor timestamp to an ISO string and cast it as `timestamptz` in the cursor SQL.
+- Add an embedded Postgres regression test for both ascending and descending comment cursor pagination.
+
 ## Live Run Evidence
 
 Run: `99bb0ff0-c1a7-4fba-9163-bb5d078f3471`
