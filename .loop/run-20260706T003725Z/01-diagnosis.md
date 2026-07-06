@@ -29,6 +29,12 @@ pnpm --filter @paperclipai/server typecheck
 
 Result: both passed.
 
+Operational status:
+
+- Paperclip was restarted after the fix.
+- The duplicate 3100/3101 server state created by the first restart attempt was corrected.
+- The active server is healthy on port 3100 and the loaded canary target list includes `leadforge`, `yt-synth`, and `agency-swarm`.
+
 ## P1-002: Blocked Timer Refreshes Can Burn Large Tokens Without Cake
 
 Severity: Critical
@@ -157,11 +163,16 @@ pnpm --filter @paperclipai/server typecheck
 
 Result: both passed.
 
+Operational status:
+
+- Paperclip was restarted after the fix.
+- The active server is healthy on port 3100.
+- Post-restart source import confirms the server code contains the updated comment cursor implementation.
+
 ## Next Implementation Order
 
-1. Restart or redeploy Paperclip after the canary-target fix is committed.
-2. Force a context-economy canary ensure against all seven targets and verify no stale venture pack can pass silently.
-3. Validate incremental comment fetches after restart by hitting the affected comments endpoint through the authenticated UI/API path.
-4. Implement blocker fingerprint no-op suppression for repeated credential, quota, and warm-up blockers.
-5. Add Graphify/GBrain/ScrapeGraphAI validator receipts to the research and council routines.
-6. Repair paused, terminated, and errored company agents with self-heal rules tied to company go-live gaps.
+1. Force a context-economy canary ensure against all seven targets and verify no stale venture pack can pass silently.
+2. Validate incremental comment fetches after restart by hitting the affected comments endpoint through the authenticated UI/API path.
+3. Implement blocker fingerprint no-op suppression for repeated credential, quota, and warm-up blockers.
+4. Add Graphify/GBrain/ScrapeGraphAI validator receipts to the research and council routines.
+5. Repair paused, terminated, and errored company agents with self-heal rules tied to company go-live gaps.

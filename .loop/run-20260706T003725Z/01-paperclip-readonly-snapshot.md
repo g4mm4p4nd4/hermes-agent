@@ -86,6 +86,40 @@ Fix applied:
 - Normalize the anchor timestamp to an ISO string and cast it as `timestamptz` in the cursor SQL.
 - Add an embedded Postgres regression test for both ascending and descending comment cursor pagination.
 
+## Post-Fix Restart Receipt
+
+Restart action:
+
+- The original fallback `screen` restart left an orphaned old server on port 3100 and a new server on port 3101.
+- Both Paperclip server process groups were terminated.
+- A single fallback `screen` session was started again with `pnpm --filter @paperclipai/server dev`.
+
+Health after cleanup:
+
+```json
+{"status":"ok","version":"0.3.1","deploymentMode":"authenticated","deploymentExposure":"private","authReady":true,"bootstrapStatus":"ready","bootstrapInviteActive":false,"features":{"companyDeletionEnabled":false}}
+```
+
+Listener state:
+
+- `node` PID `17959` is listening on `*:3100`.
+- No listener remained on `3101`.
+- Startup log reports `Server listening on 0.0.0.0:3100`.
+
+Loaded canary target reality after restart:
+
+```json
+[
+  {"repoSlug":"leadforge","cwd":"/Users/mnm/Documents/Github/LeadForge"},
+  {"repoSlug":"paperclip","cwd":"/Users/mnm/Documents/Github/paperclip"},
+  {"repoSlug":"hermes-agent","cwd":"/Users/mnm/Documents/Github/hermes-agent"},
+  {"repoSlug":"portfolio-os","cwd":"/Users/mnm/Documents/Github/portfolio-os"},
+  {"repoSlug":"yt-synth","cwd":"/Users/mnm/Documents/Github/YT-Synth"},
+  {"repoSlug":"agency-swarm","cwd":"/Users/mnm/Documents/Github/agency-swarm"},
+  {"repoSlug":"gstack","cwd":"/Users/mnm/Documents/Github/gstack"}
+]
+```
+
 ## Live Run Evidence
 
 Run: `99bb0ff0-c1a7-4fba-9163-bb5d078f3471`
