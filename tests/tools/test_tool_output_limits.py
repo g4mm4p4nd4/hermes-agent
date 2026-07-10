@@ -110,6 +110,25 @@ class TestCoercion:
             limits = tol.get_tool_output_limits()
         assert limits["max_bytes"] == 75_000
 
+    def test_environment_overrides_config(self, monkeypatch):
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_BYTES", "16000")
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_LINES", "320")
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_LINE_LENGTH", "1000")
+        cfg = {
+            "tool_output": {
+                "max_bytes": 100_000,
+                "max_lines": 5000,
+                "max_line_length": 4096,
+            }
+        }
+        with patch("hermes_cli.config.load_config", return_value=cfg):
+            limits = tol.get_tool_output_limits()
+        assert limits == {
+            "max_bytes": 16_000,
+            "max_lines": 320,
+            "max_line_length": 1_000,
+        }
+
 
 class TestShortcuts:
     def test_individual_accessors_delegate_to_get_tool_output_limits(self):

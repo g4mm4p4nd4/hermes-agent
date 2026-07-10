@@ -394,6 +394,7 @@ def _apply_profile_override() -> None:
         "--provider",
         "-t", "--toolsets",
         "-r", "--resume",
+        "--session-id",
         "-s", "--skills",
     }
     optional_value_flags = {"-c", "--continue"}
@@ -2138,6 +2139,9 @@ def cmd_chat(args):
 
     # Resolve --continue into --resume with the latest session or by name
     continue_val = getattr(args, "continue_last", None)
+    if getattr(args, "session_id", None) and (getattr(args, "resume", None) or continue_val):
+        print("--session-id creates a new session and cannot be combined with --resume or --continue.")
+        sys.exit(2)
     if continue_val and not getattr(args, "resume", None):
         if isinstance(continue_val, str):
             # -c "session name" — resolve by title or ID
@@ -2276,6 +2280,12 @@ def cmd_chat(args):
     if getattr(args, "source", None):
         os.environ["HERMES_SESSION_SOURCE"] = args.source
 
+    # Paperclip and other automation wrappers can require provider hard-stops:
+    # the configured fallback chain must not be used, including auth-time
+    # fallback before the first model request.
+    if getattr(args, "disable_fallback_model", False):
+        os.environ["HERMES_DISABLE_FALLBACK_MODEL"] = "1"
+
     _pin_kanban_board_env()
 
     if use_tui:
@@ -2293,6 +2303,7 @@ def cmd_chat(args):
             worktree=getattr(args, "worktree", False),
             checkpoints=getattr(args, "checkpoints", False),
             pass_session_id=getattr(args, "pass_session_id", False),
+            session_id=getattr(args, "session_id", None),
             max_turns=getattr(args, "max_turns", None),
             accept_hooks=getattr(args, "accept_hooks", False),
         )
@@ -2311,12 +2322,14 @@ def cmd_chat(args):
         "query": args.query,
         "image": getattr(args, "image", None),
         "resume": getattr(args, "resume", None),
+        "session_id": getattr(args, "session_id", None),
         "worktree": getattr(args, "worktree", False),
         "checkpoints": getattr(args, "checkpoints", False),
         "pass_session_id": getattr(args, "pass_session_id", False),
         "max_turns": getattr(args, "max_turns", None),
         "ignore_rules": getattr(args, "ignore_rules", False) or getattr(args, "safe_mode", False),
         "ignore_user_config": getattr(args, "ignore_user_config", False) or getattr(args, "safe_mode", False),
+        "disable_fallback_model": getattr(args, "disable_fallback_model", False),
         "compact": getattr(args, "compact", False),
     }
     # Filter out None values
@@ -11466,6 +11479,20 @@ def main():
             _recover_from_interrupted_install()
     except Exception:
         pass
+
+    # These flags affect config/plugin discovery, so honor them before the
+    # argparse tree is built. ``cmd_chat`` repeats the assignments for the
+    # chat fast path, but plugin CLI command registration happens below during
+    # parser construction.
+    _early_argv = set(sys.argv[1:])
+    if "--safe-mode" in _early_argv:
+        os.environ["HERMES_SAFE_MODE"] = "1"
+        os.environ["HERMES_IGNORE_USER_CONFIG"] = "1"
+        os.environ["HERMES_IGNORE_RULES"] = "1"
+    if "--ignore-user-config" in _early_argv:
+        os.environ["HERMES_IGNORE_USER_CONFIG"] = "1"
+    if "--ignore-rules" in _early_argv:
+        os.environ["HERMES_IGNORE_RULES"] = "1"
 
     if _try_termux_fast_tui_launch():
         return

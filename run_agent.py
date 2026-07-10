@@ -510,7 +510,7 @@ class AIAgent:
         """Create session DB row on first use. Disables _session_db on failure."""
         if self._session_db_created or not self._session_db:
             return
-        source = self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli")
+        source = self._session_source()
         try:
             self._session_db.create_session(
                 session_id=self.session_id,
@@ -529,6 +529,10 @@ class AIAgent:
             logger.warning(
                 "Session DB creation failed (will retry next turn): %s", e
             )
+
+    def _session_source(self) -> str:
+        """Return the persistent session source tag for state/accounting rows."""
+        return os.environ.get("HERMES_SESSION_SOURCE") or self.platform or "cli"
 
     def _transition_context_engine_session(
         self,
@@ -576,7 +580,7 @@ class AIAgent:
             start_context = {
                 "old_session_id": old_session_id,
                 "carry_over_context": carry_over_context,
-                "platform": getattr(self, "platform", None) or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                "platform": self._session_source(),
                 "model": getattr(self, "model", ""),
                 "context_length": getattr(engine, "context_length", None),
                 "conversation_id": getattr(self, "_gateway_session_key", None),

@@ -1,0 +1,5 @@
+name: portfolio-os
+version: 0.1.0
+description: "Portfolio-OS task bundle adapter for Paperclip-managed Hermes execution."
+author: Paperclip
+kind: standalone

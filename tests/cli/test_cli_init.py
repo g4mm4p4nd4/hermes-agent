@@ -115,6 +115,36 @@ class TestFallbackChainInit:
             {"provider": "nous", "model": "Hermes-4"},
         ]
 
+    def test_disable_fallback_model_flag_clears_chain(self):
+        cli = _make_cli(
+            config_overrides={
+                "fallback_providers": [
+                    {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
+                ],
+            },
+            disable_fallback_model=True,
+        )
+        assert cli._fallback_model == []
+
+    def test_disable_fallback_model_env_clears_chain(self):
+        cli = _make_cli(
+            env_overrides={"HERMES_DISABLE_FALLBACK_MODEL": "1"},
+            config_overrides={
+                "fallback_providers": [
+                    {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
+                ],
+            },
+        )
+        assert cli._fallback_model == []
+
+
+class TestSessionIdInit:
+    def test_explicit_session_id_starts_fresh_session_without_resume(self):
+        cli = _make_cli(session_id="paperclip_run_123")
+
+        assert cli.session_id == "paperclip_run_123"
+        assert cli._resumed is False
+
 
 class TestBusyInputMode:
     def test_default_busy_input_mode_is_interrupt(self):

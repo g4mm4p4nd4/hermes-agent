@@ -305,6 +305,12 @@ def build_top_level_parser():
         help="Resume a previous session by ID (shown on exit)",
     )
     chat_parser.add_argument(
+        "--session-id",
+        metavar="SESSION_ID",
+        default=argparse.SUPPRESS,
+        help="Use a caller-provided ID for a new session. Automation wrappers should prefer this over post-run session discovery.",
+    )
+    chat_parser.add_argument(
         "--continue",
         "-c",
         dest="continue_last",
@@ -384,6 +390,12 @@ def build_top_level_parser():
         "--source",
         default=None,
         help="Session source tag for filtering (default: cli). Use 'tool' for third-party integrations that should not appear in user session lists.",
+    )
+    chat_parser.add_argument(
+        "--disable-fallback-model",
+        action="store_true",
+        default=False,
+        help="Disable configured fallback providers for this chat invocation. Intended for automation wrappers that must hard-stop on primary provider failure.",
     )
     _inherited_flag(
         chat_parser,
