@@ -3156,6 +3156,40 @@ class TestHandleMaxIterations:
         assert len(result) > 0
         assert "summary" in result.lower()
 
+    def test_retries_when_summary_is_only_a_dsml_tool_call(self, agent):
+        tool_only = (
+            '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="terminal">'
+            '<｜｜DSML｜｜parameter name="command">true</｜｜DSML｜｜parameter>'
+            '</｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>'
+        )
+        agent.client.chat.completions.create.side_effect = [
+            _mock_response(content=tool_only),
+            _mock_response(content="Recovered final summary."),
+        ]
+        agent._cached_system_prompt = "You are helpful."
+        messages = [{"role": "user", "content": "do stuff"}]
+
+        result = agent._handle_max_iterations(messages, 60)
+
+        assert result == "Recovered final summary."
+        assert agent.client.chat.completions.create.call_count == 2
+        assert not any(message.get("content") == tool_only for message in messages)
+
+    def test_rejects_repeated_tool_only_summaries(self, agent):
+        tool_only = '<tool_calls><invoke name="terminal"></invoke></tool_calls>'
+        agent.client.chat.completions.create.side_effect = [
+            _mock_response(content=tool_only),
+            _mock_response(content=tool_only),
+        ]
+        agent._cached_system_prompt = "You are helpful."
+        messages = [{"role": "user", "content": "do stuff"}]
+
+        result = agent._handle_max_iterations(messages, 60)
+
+        assert "incomplete tool call twice" in result
+        assert "finalDisposition: blocked" in result
+        assert not any(message.get("content") == tool_only for message in messages)
+
     def test_api_failure_returns_error(self, agent):
         agent.client.chat.completions.create.side_effect = Exception("API down")
         agent._cached_system_prompt = "You are helpful."

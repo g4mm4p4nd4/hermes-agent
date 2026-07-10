@@ -1302,6 +1302,16 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
 
 
 
+def _normalize_iteration_summary(value: str | None) -> str:
+    """Strip private reasoning and reject serialized tool calls as summaries."""
+    final_response = (value or "").strip()
+    if "<think>" in final_response:
+        final_response = re.sub(r'<think>.*?</think>\s*', '', final_response, flags=re.DOTALL).strip()
+    if re.fullmatch(r'<[^>]*tool_calls>.*</[^>]*tool_calls>\s*', final_response, flags=re.DOTALL | re.IGNORECASE):
+        return ""
+    return final_response
+
+
 def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
     """Request a summary when max iterations are reached. Returns the final response text."""
     print(f"⚠️  Reached maximum iterations ({agent.max_iterations}). Requesting summary...")
@@ -1471,13 +1481,9 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
                 _summary_result = agent._get_transport().normalize_response(summary_response)
                 final_response = (_summary_result.content or "").strip()
 
+        final_response = _normalize_iteration_summary(final_response)
         if final_response:
-            if "<think>" in final_response:
-                final_response = re.sub(r'<think>.*?</think>\s*', '', final_response, flags=re.DOTALL).strip()
-            if final_response:
-                messages.append({"role": "assistant", "content": final_response})
-            else:
-                final_response = "I reached the iteration limit and couldn't generate a summary."
+            messages.append({"role": "assistant", "content": final_response})
         else:
             # Retry summary generation
             if agent.api_mode == "codex_responses":
@@ -1514,15 +1520,15 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
                 _retry_result = agent._get_transport().normalize_response(summary_response)
                 final_response = (_retry_result.content or "").strip()
 
+            final_response = _normalize_iteration_summary(final_response)
             if final_response:
-                if "<think>" in final_response:
-                    final_response = re.sub(r'<think>.*?</think>\s*', '', final_response, flags=re.DOTALL).strip()
-                if final_response:
-                    messages.append({"role": "assistant", "content": final_response})
-                else:
-                    final_response = "I reached the iteration limit and couldn't generate a summary."
+                messages.append({"role": "assistant", "content": final_response})
             else:
-                final_response = "I reached the iteration limit and couldn't generate a summary."
+                final_response = (
+                    "I reached the iteration limit and couldn't generate a final response because the provider "
+                    "returned an incomplete tool call twice.\n"
+                    "finalDisposition: blocked; nextActionOwner: runtime"
+                )
 
     except Exception as e:
         logger.warning(f"Failed to get summary response: {e}")
