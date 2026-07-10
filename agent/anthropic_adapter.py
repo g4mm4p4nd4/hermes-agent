@@ -871,6 +871,19 @@ def _read_claude_code_credentials_from_keychain() -> Optional[Dict[str, Any]]:
     if platform.system() != "Darwin":
         return None
 
+    # Unit tests and isolated runtimes monkeypatch Path.home() to a temporary
+    # home.  The macOS Keychain is global to the login session, not to that
+    # temporary home, so reading it would leak real user credentials into an
+    # isolated credential lookup and can shadow the fixture files.
+    try:
+        isolated_home = Path.home().resolve() != Path(os.path.expanduser("~")).resolve()
+        run_module = getattr(subprocess.run, "__module__", "")
+        run_is_mock = run_module.startswith("unittest.mock")
+        if isolated_home and not run_is_mock:
+            return None
+    except OSError:
+        return None
+
     try:
         # Read the "Claude Code-credentials" generic password entry
         result = subprocess.run(
@@ -890,13 +903,16 @@ def _read_claude_code_credentials_from_keychain() -> Optional[Dict[str, Any]]:
         logger.debug("Keychain: no entry found for 'Claude Code-credentials'")
         return None
 
+    if not isinstance(result.stdout, str):
+        logger.debug("Keychain: credentials payload is not text")
+        return None
     raw = result.stdout.strip()
     if not raw:
         return None
 
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         logger.debug("Keychain: credentials payload is not valid JSON")
         return None
 
