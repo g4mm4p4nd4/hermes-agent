@@ -23,6 +23,18 @@ def _patch_bootstrap(monkeypatch):
         "function": {"name": "t", "description": "t", "parameters": {"type": "object", "properties": {}}},
     }])
     monkeypatch.setattr(run_agent, "check_toolset_requirements", lambda: {})
+    monkeypatch.setattr(
+        "agent.model_metadata.fetch_endpoint_model_metadata",
+        lambda *args, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        "agent.context_compressor.get_model_context_length",
+        lambda *args, **kwargs: 256_000,
+    )
+    monkeypatch.setattr(
+        "agent.agent_init.query_ollama_num_ctx",
+        lambda *args, **kwargs: None,
+    )
 
 
 class _FakeAnthropicClient:
