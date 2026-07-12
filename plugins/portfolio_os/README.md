@@ -49,14 +49,21 @@ bytes below:
 
 | Artifact | SHA-256 |
 |---|---|
-| `profit-flywheel.v2.json` | `cd850dab4af4b5508c127e4dc3119b37636cfdfbf591062de7a99dbf527a4b04` |
-| `profit-flywheel.v2.schema.json` | `1f914dff599c21bccc20b1e5fb61cc84b81091fff01d031fa4fa7269f205ca88` |
+| `profit-flywheel.v2.json` | `3effdeb311a311bd852cff3d1ce367d4e275c3ce4f0bc4d4adda1c1cb5e6e5f7` |
+| `profit-flywheel.v2.schema.json` | `6ac1af81be0de807f51dbba786b73897f114244c1616abee5b3f41a6dbfac09b` |
 | `profit-flywheel.run.v2.schema.json` | `ba26611e26941535a29e7faf431e04da3fd05367b2d93e6b8398bebc73872481` |
 | `pos.dispatch.v2.schema.json` | `788252407b011f640711f97797f488980bc2b89682a4aa6abe5b5883e162d5e2` |
-| `pos.learning_receipt.v2.schema.json` | `803bd165efea2ae09435bf029aedfe76b385f2f105c1bdf12077035b53228356` |
+| `pos.learning_receipt.v2.schema.json` | `e63c3700eae9baa2d75b31d2a222cc7df474d8fbb72165ecddf03d9211ecf267` |
+| `pos.next_research_authorization.v1.schema.json` | `8ff5e8b0cad03f4639db23cb994353542493cb6ad3a4c041311b2b374b2bbed7` |
+| `paperclip.research_plan.v2.schema.json` | `88faae2962f76f4bf2bfce022cf25b14d9891e836a2b68cea533b3d749f111f4` |
+| `stage-work-result.v1.schema.json` | `beff2e8e4d31413329a73e6891d1c9104e004a2a4e621192d39845ff08019fba` |
+| `stage-execution.v2.schema.json` | `fb080707e7d65bb17664e494dea765fa4c7018c42a9317d188da8da6be03b6b2` |
+| `test-execution-result.v1.schema.json` | `3896d169ef45baae7c19dba9cfb0bc1d2fee18cbc2018d3c734ef23815f896d2` |
+| `independent-review-result.v1.schema.json` | `d90769477297810c8536624068fc3af1864d059a6b6d658e9648a0ae53c941af` |
+| `execution-golden-vectors.v1.json` | `4ad38f8e0174f1acd0d370837a6c6cdfc61f3bc7f32b7a63c085b973e66eb272` |
 
-The validator hashes the contract and all four schemas, checks the contract's
-embedded run/dispatch bindings, parses both manifests, confirms the contract
+The validator hashes the contract, every embedded cross-plane schema, and the
+execution golden vectors; parses both manifests; confirms the contract
 ID/schema version, and proves the route exists as an exact route in the
 provider policy. A missing, substituted, stale, or byte-mismatched pin is a
 hard validation failure. Provider-policy hashes remain control-plane revision

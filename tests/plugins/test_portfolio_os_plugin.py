@@ -34,30 +34,90 @@ def allow_test_target_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     contract_dir.mkdir()
     contract_path = contract_dir / "profit-flywheel.v2.json"
     contract_schema_path = contract_dir / "profit-flywheel.v2.schema.json"
-    run_schema_path = contract_dir / "profit-flywheel.run.v2.schema.json"
-    dispatch_schema_path = contract_dir / "pos.dispatch.v2.schema.json"
-    learning_schema_path = contract_dir / "pos.learning_receipt.v2.schema.json"
     schema_fixture = {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object"}
-    for schema_path in (contract_schema_path, run_schema_path, dispatch_schema_path, learning_schema_path):
+    contract_schema_path.write_text(json.dumps(schema_fixture), encoding="utf-8")
+    schema_specs = {
+        "run_receipt": (
+            "profit-flywheel.run.v2.schema.json",
+            "profit-flywheel.run.v2",
+            "PINNED_PROFIT_FLYWHEEL_RUN_SCHEMA_SHA256",
+        ),
+        "dispatch": (
+            "pos.dispatch.v2.schema.json",
+            "pos.dispatch.v2",
+            "PINNED_POS_DISPATCH_SCHEMA_SHA256",
+        ),
+        "learning_receipt": (
+            "pos.learning_receipt.v2.schema.json",
+            "pos.learning_receipt.v2",
+            "PINNED_POS_LEARNING_RECEIPT_SCHEMA_SHA256",
+        ),
+        "next_research_authority": (
+            "pos.next_research_authorization.v1.schema.json",
+            "pos.next_research_authorization.v1",
+            "PINNED_POS_NEXT_RESEARCH_AUTHORITY_SCHEMA_SHA256",
+        ),
+        "research_plan": (
+            "paperclip.research_plan.v2.schema.json",
+            "paperclip.research_plan.v2",
+            "PINNED_PAPERCLIP_RESEARCH_PLAN_SCHEMA_SHA256",
+        ),
+        "stage_work_result": (
+            "stage-work-result.v1.schema.json",
+            "paperclip.profit_flywheel_stage_work_result.v1",
+            "PINNED_STAGE_WORK_RESULT_SCHEMA_SHA256",
+        ),
+        "stage_execution": (
+            "stage-execution.v2.schema.json",
+            "paperclip.profit_flywheel_stage_execution.v2",
+            "PINNED_STAGE_EXECUTION_SCHEMA_SHA256",
+        ),
+        "test_execution_result": (
+            "test-execution-result.v1.schema.json",
+            "paperclip.test_execution_result.v1",
+            "PINNED_TEST_EXECUTION_RESULT_SCHEMA_SHA256",
+        ),
+        "independent_review_result": (
+            "independent-review-result.v1.schema.json",
+            "paperclip.independent_review_result.v1",
+            "PINNED_INDEPENDENT_REVIEW_RESULT_SCHEMA_SHA256",
+        ),
+    }
+    artifact_schemas = {}
+    frozen_schema_hashes = {}
+    for name, (file_name, schema_version, pin_name) in schema_specs.items():
+        schema_path = contract_dir / file_name
         schema_path.write_text(json.dumps(schema_fixture), encoding="utf-8")
-    run_schema_sha256 = hashlib.sha256(run_schema_path.read_bytes()).hexdigest()
-    dispatch_schema_sha256 = hashlib.sha256(dispatch_schema_path.read_bytes()).hexdigest()
-    learning_schema_sha256 = hashlib.sha256(learning_schema_path.read_bytes()).hexdigest()
+        schema_sha256 = hashlib.sha256(schema_path.read_bytes()).hexdigest()
+        artifact_schemas[name] = {
+            "schema_version": schema_version,
+            "path": f"contracts/{file_name}",
+            "sha256": schema_sha256,
+        }
+        frozen_schema_hashes[pin_name] = schema_sha256
+    vectors_path = contract_dir / "execution-golden-vectors.v1.json"
+    vectors_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "paperclip.profit_flywheel_execution_golden_vectors.v1",
+                "valid": {},
+                "invalid": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    vectors_sha256 = hashlib.sha256(vectors_path.read_bytes()).hexdigest()
     contract_path.write_text(
         json.dumps({
             "contract_id": PROFIT_FLYWHEEL_CONTRACT_ID,
             "schema_version": PROFIT_FLYWHEEL_SCHEMA_VERSION,
-            "artifact_schemas": {
-                "run_receipt": {
-                    "schema_version": "profit-flywheel.run.v2",
-                    "path": "contracts/profit-flywheel.run.v2.schema.json",
-                    "sha256": run_schema_sha256,
-                },
-                "dispatch": {
-                    "schema_version": "pos.dispatch.v2",
-                    "path": "contracts/pos.dispatch.v2.schema.json",
-                    "sha256": dispatch_schema_sha256,
-                },
+            "artifact_schemas": artifact_schemas,
+            "artifact_vectors": {
+                "execution": {
+                    "schema_version": "paperclip.profit_flywheel_execution_golden_vectors.v1",
+                    "path": "contracts/execution-golden-vectors.v1.json",
+                    "sha256": vectors_sha256,
+                }
             },
         }),
         encoding="utf-8",
@@ -70,12 +130,12 @@ def allow_test_target_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         "PINNED_PROFIT_FLYWHEEL_CONTRACT_SCHEMA_SHA256",
         contract_schema_sha256,
     )
-    monkeypatch.setattr(portfolio_contract, "PINNED_PROFIT_FLYWHEEL_RUN_SCHEMA_SHA256", run_schema_sha256)
-    monkeypatch.setattr(portfolio_contract, "PINNED_POS_DISPATCH_SCHEMA_SHA256", dispatch_schema_sha256)
+    for pin_name, schema_sha256 in frozen_schema_hashes.items():
+        monkeypatch.setattr(portfolio_contract, pin_name, schema_sha256)
     monkeypatch.setattr(
         portfolio_contract,
-        "PINNED_POS_LEARNING_RECEIPT_SCHEMA_SHA256",
-        learning_schema_sha256,
+        "PINNED_EXECUTION_GOLDEN_VECTORS_SHA256",
+        vectors_sha256,
     )
     policy_path = contract_dir / "provider-policy.v2.json"
     policy_schema_path = contract_dir / "provider-policy.v2.schema.json"
@@ -577,7 +637,31 @@ def test_v2_bundle_cannot_redefine_the_frozen_profit_flywheel_pin(
         ),
         (
             "pos.learning_receipt.v2.schema.json",
-            "frozen POS learning receipt schema SHA-256 does not match schema bytes",
+            "frozen profit-flywheel learning_receipt schema SHA-256 does not match schema bytes",
+        ),
+        (
+            "pos.next_research_authorization.v1.schema.json",
+            "frozen profit-flywheel next_research_authority schema SHA-256 does not match schema bytes",
+        ),
+        (
+            "paperclip.research_plan.v2.schema.json",
+            "frozen profit-flywheel research_plan schema SHA-256 does not match schema bytes",
+        ),
+        (
+            "stage-work-result.v1.schema.json",
+            "frozen profit-flywheel stage_work_result schema SHA-256 does not match schema bytes",
+        ),
+        (
+            "stage-execution.v2.schema.json",
+            "frozen profit-flywheel stage_execution schema SHA-256 does not match schema bytes",
+        ),
+        (
+            "test-execution-result.v1.schema.json",
+            "frozen profit-flywheel test_execution_result schema SHA-256 does not match schema bytes",
+        ),
+        (
+            "independent-review-result.v1.schema.json",
+            "frozen profit-flywheel independent_review_result schema SHA-256 does not match schema bytes",
         ),
     ],
 )
@@ -594,6 +678,23 @@ def test_v2_bundle_rejects_tampered_frozen_artifact_schema_bytes(
     errors = validate_bundle(bundle)
 
     assert expected_error in errors
+
+
+def test_v2_bundle_rejects_tampered_execution_golden_vectors(tmp_path: Path) -> None:
+    repo = _init_target_repo(tmp_path)
+    bundle = _bundle(tmp_path, repo)
+    contract_path = Path(os.environ["PAPERCLIP_PROFIT_FLYWHEEL_CONTRACT_PATH"])
+    (contract_path.parent / "execution-golden-vectors.v1.json").write_text(
+        '{"schema_version":"forged","valid":{},"invalid":{}}',
+        encoding="utf-8",
+    )
+
+    errors = validate_bundle(bundle)
+
+    assert (
+        "frozen profit-flywheel execution golden vectors SHA-256 does not match schema bytes"
+        in errors
+    )
 
 
 def test_v2_bundle_requires_exact_resolved_route_and_full_budgets(tmp_path: Path) -> None:

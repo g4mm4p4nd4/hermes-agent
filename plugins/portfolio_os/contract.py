@@ -25,10 +25,10 @@ DEFAULT_PROVIDER_POLICY_SCHEMA_PATH = Path(
 # Frozen Portfolio-OS/Paperclip trust roots.  Environment variables and task
 # bundles must agree with these values; they are not allowed to redefine them.
 PINNED_PROFIT_FLYWHEEL_CONTRACT_SHA256 = (
-    "cd850dab4af4b5508c127e4dc3119b37636cfdfbf591062de7a99dbf527a4b04"
+    "3effdeb311a311bd852cff3d1ce367d4e275c3ce4f0bc4d4adda1c1cb5e6e5f7"
 )
 PINNED_PROFIT_FLYWHEEL_CONTRACT_SCHEMA_SHA256 = (
-    "1f914dff599c21bccc20b1e5fb61cc84b81091fff01d031fa4fa7269f205ca88"
+    "6ac1af81be0de807f51dbba786b73897f114244c1616abee5b3f41a6dbfac09b"
 )
 PINNED_PROFIT_FLYWHEEL_RUN_SCHEMA_SHA256 = (
     "ba26611e26941535a29e7faf431e04da3fd05367b2d93e6b8398bebc73872481"
@@ -37,7 +37,28 @@ PINNED_POS_DISPATCH_SCHEMA_SHA256 = (
     "788252407b011f640711f97797f488980bc2b89682a4aa6abe5b5883e162d5e2"
 )
 PINNED_POS_LEARNING_RECEIPT_SCHEMA_SHA256 = (
-    "803bd165efea2ae09435bf029aedfe76b385f2f105c1bdf12077035b53228356"
+    "e63c3700eae9baa2d75b31d2a222cc7df474d8fbb72165ecddf03d9211ecf267"
+)
+PINNED_POS_NEXT_RESEARCH_AUTHORITY_SCHEMA_SHA256 = (
+    "8ff5e8b0cad03f4639db23cb994353542493cb6ad3a4c041311b2b374b2bbed7"
+)
+PINNED_PAPERCLIP_RESEARCH_PLAN_SCHEMA_SHA256 = (
+    "88faae2962f76f4bf2bfce022cf25b14d9891e836a2b68cea533b3d749f111f4"
+)
+PINNED_STAGE_WORK_RESULT_SCHEMA_SHA256 = (
+    "beff2e8e4d31413329a73e6891d1c9104e004a2a4e621192d39845ff08019fba"
+)
+PINNED_STAGE_EXECUTION_SCHEMA_SHA256 = (
+    "fb080707e7d65bb17664e494dea765fa4c7018c42a9317d188da8da6be03b6b2"
+)
+PINNED_TEST_EXECUTION_RESULT_SCHEMA_SHA256 = (
+    "3896d169ef45baae7c19dba9cfb0bc1d2fee18cbc2018d3c734ef23815f896d2"
+)
+PINNED_INDEPENDENT_REVIEW_RESULT_SCHEMA_SHA256 = (
+    "d90769477297810c8536624068fc3af1864d059a6b6d658e9648a0ae53c941af"
+)
+PINNED_EXECUTION_GOLDEN_VECTORS_SHA256 = (
+    "4ad38f8e0174f1acd0d370837a6c6cdfc61f3bc7f32b7a63c085b973e66eb272"
 )
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MANDATE_TYPES = {"launch_execution", "validation_sprint", "research_backfill", "internal_leverage"}
@@ -317,10 +338,52 @@ def _validate_frozen_profit_flywheel_schemas(
             "contracts/pos.dispatch.v2.schema.json",
             PINNED_POS_DISPATCH_SCHEMA_SHA256,
         ),
+        (
+            "learning_receipt",
+            "pos.learning_receipt.v2",
+            "contracts/pos.learning_receipt.v2.schema.json",
+            PINNED_POS_LEARNING_RECEIPT_SCHEMA_SHA256,
+        ),
+        (
+            "next_research_authority",
+            "pos.next_research_authorization.v1",
+            "contracts/pos.next_research_authorization.v1.schema.json",
+            PINNED_POS_NEXT_RESEARCH_AUTHORITY_SCHEMA_SHA256,
+        ),
+        (
+            "research_plan",
+            "paperclip.research_plan.v2",
+            "contracts/paperclip.research_plan.v2.schema.json",
+            PINNED_PAPERCLIP_RESEARCH_PLAN_SCHEMA_SHA256,
+        ),
+        (
+            "stage_work_result",
+            "paperclip.profit_flywheel_stage_work_result.v1",
+            "contracts/stage-work-result.v1.schema.json",
+            PINNED_STAGE_WORK_RESULT_SCHEMA_SHA256,
+        ),
+        (
+            "stage_execution",
+            "paperclip.profit_flywheel_stage_execution.v2",
+            "contracts/stage-execution.v2.schema.json",
+            PINNED_STAGE_EXECUTION_SCHEMA_SHA256,
+        ),
+        (
+            "test_execution_result",
+            "paperclip.test_execution_result.v1",
+            "contracts/test-execution-result.v1.schema.json",
+            PINNED_TEST_EXECUTION_RESULT_SCHEMA_SHA256,
+        ),
+        (
+            "independent_review_result",
+            "paperclip.independent_review_result.v1",
+            "contracts/independent-review-result.v1.schema.json",
+            PINNED_INDEPENDENT_REVIEW_RESULT_SCHEMA_SHA256,
+        ),
     )
     expected_names = {name for name, _, _, _ in expected_bindings}
     if set(bindings) != expected_names:
-        errors.append("pinned profit-flywheel artifact_schemas must bind exactly dispatch and run_receipt")
+        errors.append("pinned profit-flywheel artifact_schemas must bind every canonical cross-plane schema")
 
     contract_root = contract_path.parent.parent
     for name, schema_version, relative_path, expected_sha256 in expected_bindings:
@@ -339,16 +402,31 @@ def _validate_frozen_profit_flywheel_schemas(
             errors=errors,
         )
 
-    # Learning receipts are produced after the run/dispatch lifecycle and are
-    # intentionally not one of the contract's two artifact_schemas entries.
-    # They still cross the Hermes/Paperclip boundary, so pin the sibling schema
-    # directly instead of leaving it as an unverified ambient file.
+    vectors = _mapping(manifest.get("artifact_vectors"))
+    execution_vectors = _mapping(vectors.get("execution"))
+    if set(vectors) != {"execution"}:
+        errors.append("pinned profit-flywheel artifact_vectors must bind exactly execution")
+    if execution_vectors.get("schema_version") != "paperclip.profit_flywheel_execution_golden_vectors.v1":
+        errors.append("pinned execution vectors have the wrong schema_version")
+    if execution_vectors.get("path") != "contracts/execution-golden-vectors.v1.json":
+        errors.append("pinned execution vectors have the wrong path")
+    if execution_vectors.get("sha256") != PINNED_EXECUTION_GOLDEN_VECTORS_SHA256:
+        errors.append("pinned execution vectors SHA-256 does not match the frozen Hermes trust root")
+    vector_path = contract_root / "contracts/execution-golden-vectors.v1.json"
     _validate_frozen_schema_file(
-        contract_path.parent / "pos.learning_receipt.v2.schema.json",
-        label="POS learning receipt schema",
-        expected_sha256=PINNED_POS_LEARNING_RECEIPT_SCHEMA_SHA256,
+        vector_path,
+        label="profit-flywheel execution golden vectors",
+        expected_sha256=PINNED_EXECUTION_GOLDEN_VECTORS_SHA256,
         errors=errors,
     )
+    vector_payload = _load_json_object(vector_path)
+    if (
+        vector_payload is None
+        or vector_payload.get("schema_version")
+        != "paperclip.profit_flywheel_execution_golden_vectors.v1"
+        or set(vector_payload) != {"schema_version", "valid", "invalid"}
+    ):
+        errors.append("pinned execution golden vectors have an invalid identity or shape")
 
 
 def _validate_pinned_file(
