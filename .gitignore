@@ -46,6 +46,7 @@ node_modules/
 browser-use/
 agent-browser/
 # Private keys
+*.key
 *.ppk
 *.pem
 privvy*
