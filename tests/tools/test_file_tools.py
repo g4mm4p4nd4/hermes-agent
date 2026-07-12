@@ -6,6 +6,8 @@ handling without requiring a running terminal environment.
 
 import json
 import logging
+import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from tools.file_tools import (
@@ -77,7 +79,7 @@ class TestWriteFileHandler:
         from tools.file_tools import write_file_tool
         result = json.loads(write_file_tool("/tmp/out.txt", "hello world!\n"))
         assert result["status"] == "ok"
-        mock_ops.write_file.assert_called_once_with("/tmp/out.txt", "hello world!\n")
+        mock_ops.write_file.assert_called_once_with(os.path.realpath("/tmp/out.txt"), "hello world!\n")
 
     @patch("tools.file_tools._get_file_ops")
     def test_permission_error_returns_error_json_without_error_log(self, mock_get, caplog):
@@ -182,7 +184,7 @@ class TestPatchHandler:
             old_string="foo", new_string="bar"
         ))
         assert result["status"] == "ok"
-        mock_ops.patch_replace.assert_called_once_with("/tmp/f.py", "foo", "bar", False)
+        mock_ops.patch_replace.assert_called_once_with(os.path.realpath("/tmp/f.py"), "foo", "bar", False)
 
     @patch("tools.file_tools._get_file_ops")
     def test_replace_mode_replace_all_flag(self, mock_get):
@@ -195,7 +197,7 @@ class TestPatchHandler:
         from tools.file_tools import patch_tool
         patch_tool(mode="replace", path="/tmp/f.py",
                    old_string="x", new_string="y", replace_all=True)
-        mock_ops.patch_replace.assert_called_once_with("/tmp/f.py", "x", "y", True)
+        mock_ops.patch_replace.assert_called_once_with(os.path.realpath("/tmp/f.py"), "x", "y", True)
 
     @patch("tools.file_tools._get_file_ops")
     def test_replace_mode_missing_path_errors(self, mock_get):
@@ -637,6 +639,48 @@ class TestSensitivePathCheck:
         result = json.loads(write_file_tool("/etc/passwd", "evil"))
         assert "error" in result
         assert "sensitive system path" in result["error"]
+
+    def test_macos_user_temp_path_is_not_treated_as_system_state(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("tools.file_tools.sys.platform", "darwin")
+        monkeypatch.setattr("tools.file_tools.tempfile.gettempdir", lambda: str(tmp_path))
+
+        from tools.file_tools import _check_sensitive_path
+
+        # pytest's macOS tmp_path is below the canonical per-user T directory,
+        # which is the root the helper discovers after realpath resolution.
+        canonical_temp_root = Path("/private/var/folders/test-bucket/test-user/T")
+        monkeypatch.setattr(
+            "tools.file_tools._darwin_user_temp_root",
+            lambda: str(canonical_temp_root),
+        )
+        candidate = canonical_temp_root / "hermes" / "result.json"
+        assert _check_sensitive_path(str(candidate)) is None
+
+    def test_macos_private_var_outside_user_temp_remains_blocked(self, monkeypatch):
+        monkeypatch.setattr(
+            "tools.file_tools._darwin_user_temp_root",
+            lambda: "/private/var/folders/test-bucket/test-user/T",
+        )
+
+        from tools.file_tools import _check_sensitive_path
+
+        error = _check_sensitive_path("/private/var/db/hermes-state")
+        assert error is not None
+        assert "sensitive system path" in error
+
+    def test_macos_temp_symlink_to_sensitive_path_remains_blocked(self, tmp_path, monkeypatch):
+        link = tmp_path / "system"
+        link.symlink_to("/private/etc", target_is_directory=True)
+        monkeypatch.setattr(
+            "tools.file_tools._darwin_user_temp_root",
+            lambda: str(tmp_path.resolve()),
+        )
+
+        from tools.file_tools import _check_sensitive_path
+
+        error = _check_sensitive_path(str(link / "hosts"))
+        assert error is not None
+        assert "sensitive system path" in error
 
     @patch("tools.file_tools._get_file_ops")
     def test_normal_file_not_blocked(self, mock_get, monkeypatch):

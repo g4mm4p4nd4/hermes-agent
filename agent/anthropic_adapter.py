@@ -902,6 +902,12 @@ def _read_claude_code_credentials_from_keychain() -> Optional[Dict[str, Any]]:
         logger.debug("Keychain: no entry found for 'Claude Code-credentials'")
         return None
 
+    # ``subprocess.run(..., text=True)`` should return text, but treat a
+    # malformed runner/shim as an unavailable Keychain entry rather than
+    # letting credential fallback crash in ``json.loads``.
+    if not isinstance(result.stdout, str):
+        logger.debug("Keychain: security command returned non-text output")
+        return None
     raw = result.stdout.strip()
     if not raw:
         return None

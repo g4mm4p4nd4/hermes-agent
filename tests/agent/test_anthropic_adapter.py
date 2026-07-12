@@ -727,6 +727,18 @@ class TestRunOauthSetupToken:
 
         assert token is None
 
+    def test_non_text_keychain_output_falls_back_without_crashing(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/claude")
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+        monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
+        monkeypatch.setattr("agent.anthropic_adapter.Path.home", lambda: tmp_path)
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=object())
+            token = run_oauth_setup_token()
+
+        assert token is None
+
 
 # ---------------------------------------------------------------------------
 # Model name normalization
