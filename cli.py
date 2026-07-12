@@ -3986,7 +3986,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._session_db_unavailable = False
         try:
             from hermes_state import SessionDB
-            self._session_db = SessionDB()
+            # Resolve HERMES_HOME at construction time.  The module-level
+            # hermes_state.DEFAULT_DB_PATH is frozen at import and can point at
+            # a different managed profile (or the real user profile in tests),
+            # which would make an explicit automation session ID collide with
+            # an unrelated transcript.
+            self._session_db = SessionDB(
+                db_path=get_hermes_home() / "state.db"
+            )
         except Exception as e:
             # #41386: a failed session store means the transcript is NOT
             # persisted to state.db — the live chat looks healthy but resume

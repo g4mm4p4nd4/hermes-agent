@@ -61,6 +61,10 @@ def test_installed_hermes_status_imports_this_checkout_and_redacts_zero_fragment
     env.update(
         {
             "HERMES_HOME": str(tmp_path / "hermes-home"),
+            # A managed Paperclip route trusts only its injected environment;
+            # host-global managed scope or external secret sources must not
+            # replace this sentinel during the subprocess startup path.
+            "HERMES_MANAGED_PROFILE": "1",
             "OPENROUTER_API_KEY": sentinel,
             "NO_COLOR": "1",
         }
