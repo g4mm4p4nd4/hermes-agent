@@ -1437,10 +1437,10 @@ def _validate_gateway_config(config: "GatewayConfig") -> None:
             token = pconfig.token
             if token and token.strip() and not has_usable_secret(token, min_length=4):
                 logger.error(
-                    "%s is enabled but %s is set to a placeholder value ('%s'). "
+                    "%s is enabled but %s is set to a placeholder value. "
                     "Set a real bot token before starting the gateway. "
                     "The adapter will NOT be started.",
-                    platform.value, env_name, token.strip()[:6] + "...",
+                    platform.value, env_name,
                 )
                 pconfig.enabled = False
 

@@ -31,6 +31,7 @@ fail because of a malformed config.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict
 
 # Hardcoded defaults — these match the pre-existing values, so adding
@@ -79,11 +80,24 @@ def get_tool_output_limits() -> Dict[str, int]:
     except Exception:
         section = {}
 
+    # Environment overrides are intentionally resolved after config.  They are
+    # the non-persistent control surface used by bounded automation runners
+    # (for example the Paperclip edge adapter); invalid values fall back to the
+    # configured value rather than disabling truncation.
+    config_max_bytes = _coerce_positive_int(section.get("max_bytes"), DEFAULT_MAX_BYTES)
+    config_max_lines = _coerce_positive_int(section.get("max_lines"), DEFAULT_MAX_LINES)
+    config_max_line_length = _coerce_positive_int(
+        section.get("max_line_length"), DEFAULT_MAX_LINE_LENGTH
+    )
     _cached_limits = {
-        "max_bytes": _coerce_positive_int(section.get("max_bytes"), DEFAULT_MAX_BYTES),
-        "max_lines": _coerce_positive_int(section.get("max_lines"), DEFAULT_MAX_LINES),
+        "max_bytes": _coerce_positive_int(
+            os.environ.get("HERMES_TOOL_OUTPUT_MAX_BYTES"), config_max_bytes
+        ),
+        "max_lines": _coerce_positive_int(
+            os.environ.get("HERMES_TOOL_OUTPUT_MAX_LINES"), config_max_lines
+        ),
         "max_line_length": _coerce_positive_int(
-            section.get("max_line_length"), DEFAULT_MAX_LINE_LENGTH
+            os.environ.get("HERMES_TOOL_OUTPUT_MAX_LINE_LENGTH"), config_max_line_length
         ),
     }
     return _cached_limits

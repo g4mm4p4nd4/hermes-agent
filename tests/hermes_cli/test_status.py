@@ -1,4 +1,10 @@
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
+
+import pytest
 
 from hermes_cli.status import show_status
 
@@ -13,6 +19,70 @@ def test_show_status_all_does_not_print_tavily_key_value(monkeypatch, capsys, tm
     output = capsys.readouterr().out
     assert "Tavily" in output
     assert sentinel not in output
+
+
+@pytest.mark.parametrize(
+    ("env_name", "label"),
+    [
+        ("OPENROUTER_API_KEY", "OpenRouter"),
+        ("MINIMAX_API_KEY", "MiniMax"),
+        ("GOOGLE_API_KEY", "Google / Gemini"),
+        ("ANTHROPIC_API_KEY", "Anthropic"),
+    ],
+)
+def test_show_status_all_never_prints_provider_credentials(
+    monkeypatch, capsys, tmp_path, env_name, label
+):
+    """The verbose status view is shareable and can never reveal a key."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    sentinel = f"SENTINEL_{env_name}_DO_NOT_PRINT_0123456789"
+    monkeypatch.setenv(env_name, sentinel)
+
+    show_status(SimpleNamespace(all=True, deep=False))
+
+    output = capsys.readouterr().out
+    assert label in output
+    assert sentinel not in output
+    assert sentinel[:12] not in output
+    assert sentinel[-12:] not in output
+    assert "(configured)" in output
+
+
+def test_installed_hermes_status_imports_this_checkout_and_redacts_zero_fragments(
+    tmp_path,
+):
+    """The installed entry point must execute this checkout, not stale code."""
+    executable = Path(sys.executable).with_name("hermes")
+    assert executable.is_file(), f"missing installed Hermes entry point: {executable}"
+
+    repo_root = Path(__file__).resolve().parents[2]
+    sentinel = "SENTINEL_INSTALLED_ENTRYPOINT_0123456789_SECRET_SUFFIX"
+    env = os.environ.copy()
+    env.update(
+        {
+            "HERMES_HOME": str(tmp_path / "hermes-home"),
+            "OPENROUTER_API_KEY": sentinel,
+            "NO_COLOR": "1",
+        }
+    )
+    completed = subprocess.run(
+        [str(executable), "status", "--all"],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert f"Project:      {repo_root}" in completed.stdout
+    assert sentinel not in completed.stdout
+    assert sentinel[:12] not in completed.stdout
+    assert sentinel[-12:] not in completed.stdout
+    assert "OpenRouter" in completed.stdout
+    assert "(configured)" in completed.stdout
 
 
 def test_show_status_termux_gateway_section_skips_systemctl(monkeypatch, capsys, tmp_path):

@@ -93,6 +93,44 @@ class TestOverrides:
             limits = tol.get_tool_output_limits()
         assert limits["max_bytes"] == tol.DEFAULT_MAX_BYTES
 
+    def test_environment_overrides_config_for_automation(self, monkeypatch):
+        cfg = {
+            "tool_output": {
+                "max_bytes": 100_000,
+                "max_lines": 5000,
+                "max_line_length": 4096,
+            }
+        }
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_BYTES", "16000")
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_LINES", "320")
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_LINE_LENGTH", "1000")
+        with patch("hermes_cli.config.load_config", return_value=cfg):
+            limits = tol.get_tool_output_limits()
+        assert limits == {
+            "max_bytes": 16_000,
+            "max_lines": 320,
+            "max_line_length": 1000,
+        }
+
+    def test_invalid_environment_preserves_configured_limit(self, monkeypatch):
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_BYTES", "0")
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_LINES", "not-an-int")
+        monkeypatch.setenv("HERMES_TOOL_OUTPUT_MAX_LINE_LENGTH", "-1")
+        cfg = {
+            "tool_output": {
+                "max_bytes": 111,
+                "max_lines": 222,
+                "max_line_length": 333,
+            }
+        }
+        with patch("hermes_cli.config.load_config", return_value=cfg):
+            limits = tol.get_tool_output_limits()
+        assert limits == {
+            "max_bytes": 111,
+            "max_lines": 222,
+            "max_line_length": 333,
+        }
+
 
 class TestCoercion:
     @pytest.mark.parametrize("bad", [None, "not a number", -1, 0, [], {}])

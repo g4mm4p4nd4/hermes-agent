@@ -2252,6 +2252,16 @@ def cmd_chat(args):
 
     _apply_safe_mode(args)
 
+    explicit_session_id = getattr(args, "session_id", None)
+    if explicit_session_id and (
+        getattr(args, "resume", None) or getattr(args, "continue_last", None)
+    ):
+        print("Error: --session-id creates a new session and cannot be combined with --resume/--continue.")
+        sys.exit(2)
+    if explicit_session_id and use_tui:
+        print("Error: --session-id is currently supported by the classic CLI only; add --cli.")
+        sys.exit(2)
+
     # Resolve --continue into --resume with the latest session or by name
     continue_val = getattr(args, "continue_last", None)
     if continue_val and not getattr(args, "resume", None):
@@ -2380,6 +2390,11 @@ def cmd_chat(args):
     if getattr(args, "ignore_rules", False):
         os.environ["HERMES_IGNORE_RULES"] = "1"
 
+    # Paperclip and other policy-owning callers must be able to prevent
+    # Hermes from silently switching providers/models underneath them.
+    if getattr(args, "disable_fallback_model", False):
+        os.environ["HERMES_DISABLE_FALLBACK_MODEL"] = "1"
+
     # --source: tag session source for filtering (e.g. 'tool' for third-party integrations)
     if getattr(args, "source", None):
         os.environ["HERMES_SESSION_SOURCE"] = args.source
@@ -2419,9 +2434,11 @@ def cmd_chat(args):
         "query": args.query,
         "image": getattr(args, "image", None),
         "resume": getattr(args, "resume", None),
+        "session_id": explicit_session_id,
         "worktree": getattr(args, "worktree", False),
         "checkpoints": getattr(args, "checkpoints", False),
         "pass_session_id": getattr(args, "pass_session_id", False),
+        "disable_fallback_model": getattr(args, "disable_fallback_model", False),
         "max_turns": getattr(args, "max_turns", None),
         "ignore_rules": getattr(args, "ignore_rules", False) or getattr(args, "safe_mode", False),
         "ignore_user_config": getattr(args, "ignore_user_config", False) or getattr(args, "safe_mode", False),
@@ -12317,6 +12334,7 @@ _TOP_LEVEL_VALUE_FLAGS = frozenset(
         "--provider",
         "-t", "--toolsets",
         "-r", "--resume",
+        "--session-id",
         "-s", "--skills",
         "--usage-file",
         # ``-c / --continue`` is nargs='?' (optional value). Treat it as
@@ -12496,6 +12514,27 @@ def _apply_safe_mode(args) -> None:
     os.environ["HERMES_SAFE_MODE"] = "1"
     os.environ["HERMES_IGNORE_USER_CONFIG"] = "1"
     os.environ["HERMES_IGNORE_RULES"] = "1"
+
+
+def _apply_preparse_isolation_flags(argv: list[str]) -> None:
+    """Apply isolation flags before plugin/config discovery builds argparse.
+
+    ``--safe-mode`` and ``--ignore-user-config`` affect which plugins exist,
+    so waiting until after ``parse_args`` is too late for plugin subcommands.
+    This lightweight pre-parse keeps the later authoritative argparse path
+    while making discovery obey the requested isolation boundary.
+    """
+    args = set(argv)
+    if "--safe-mode" in args:
+        os.environ["HERMES_SAFE_MODE"] = "1"
+        os.environ["HERMES_IGNORE_USER_CONFIG"] = "1"
+        os.environ["HERMES_IGNORE_RULES"] = "1"
+    if "--ignore-user-config" in args:
+        os.environ["HERMES_IGNORE_USER_CONFIG"] = "1"
+    if "--ignore-rules" in args:
+        os.environ["HERMES_IGNORE_RULES"] = "1"
+    if "--disable-fallback-model" in args:
+        os.environ["HERMES_DISABLE_FALLBACK_MODEL"] = "1"
 
 
 def _set_chat_arg_defaults(args) -> None:
@@ -12784,6 +12823,8 @@ def cmd_claw(args):
 
 def main():
     """Main entry point for hermes CLI."""
+    _apply_preparse_isolation_flags(sys.argv[1:])
+
     # Cosmetic: make the process show up as 'hermes' instead of 'python3.11'
     # in ps/top/htop.  Non-fatal — just a nicer UX.
     _set_process_title()

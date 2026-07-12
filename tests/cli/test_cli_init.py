@@ -6,6 +6,8 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -25,7 +27,11 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
     }
     if config_overrides:
         _clean_config.update(config_overrides)
-    clean_env = {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}
+    clean_env = {
+        "LLM_MODEL": "",
+        "HERMES_MAX_ITERATIONS": "",
+        "HERMES_DISABLE_FALLBACK_MODEL": "",
+    }
     if env_overrides:
         clean_env.update(env_overrides)
     prompt_toolkit_stubs = {
@@ -114,6 +120,51 @@ class TestFallbackChainInit:
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
             {"provider": "nous", "model": "Hermes-4"},
         ]
+
+    def test_explicit_disable_fallback_ignores_configured_chain(self):
+        cli = _make_cli(
+            config_overrides={
+                "fallback_model": {"provider": "nous", "model": "Hermes-4"},
+            },
+            disable_fallback_model=True,
+        )
+        assert cli._disable_fallback_model is True
+        assert cli._fallback_model == []
+
+    def test_environment_disable_fallback_ignores_configured_chain(self):
+        cli = _make_cli(
+            env_overrides={"HERMES_DISABLE_FALLBACK_MODEL": "1"},
+            config_overrides={
+                "fallback_model": {"provider": "nous", "model": "Hermes-4"},
+            },
+        )
+        assert cli._disable_fallback_model is True
+        assert cli._fallback_model == []
+
+
+class TestExplicitSessionId:
+    def test_uses_valid_explicit_id_for_new_session(self):
+        cli = _make_cli(session_id="paperclip-run_20260711-abc")
+        assert cli.session_id == "paperclip-run_20260711-abc"
+        assert cli._resumed is False
+
+    @pytest.mark.parametrize(
+        "value",
+        ["", "contains spaces", "../escape", "/absolute", "colon:not-portable", "x" * 129],
+    )
+    def test_rejects_unsafe_explicit_id(self, value):
+        with pytest.raises(ValueError, match="session_id must"):
+            _make_cli(session_id=value)
+
+    def test_rejects_resume_combined_with_explicit_id(self):
+        with pytest.raises(ValueError, match="cannot be combined"):
+            _make_cli(resume="existing", session_id="new-id")
+
+    def test_rejects_existing_id_instead_of_merging_transcripts(self):
+        first = _make_cli(session_id="existing-id")
+        first._session_db.create_session(session_id="existing-id", source="tool")
+        with pytest.raises(ValueError, match="already exists"):
+            _make_cli(session_id="existing-id")
 
 
 class TestBusyInputMode:

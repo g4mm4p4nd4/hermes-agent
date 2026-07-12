@@ -32,6 +32,38 @@ def test_project_env_overrides_stale_shell_values_when_user_env_missing(tmp_path
     assert os.getenv("OPENAI_BASE_URL") == "https://project.example/v1"
 
 
+def test_disable_project_dotenv_preserves_injected_policy_credential(tmp_path, monkeypatch):
+    home = tmp_path / "isolated-hermes"
+    home.mkdir()
+    project_env = tmp_path / ".env"
+    project_env.write_text("OPENCODE_GO_API_KEY=\n", encoding="utf-8")
+    injected = "policy-injected-opencode-key"
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", injected)
+    monkeypatch.setenv("HERMES_DISABLE_PROJECT_DOTENV", "1")
+
+    loaded = load_hermes_dotenv(hermes_home=home, project_env=project_env)
+
+    assert loaded == []
+    assert os.environ["OPENCODE_GO_API_KEY"] == injected
+
+
+def test_policy_pinned_managed_profile_ignores_all_dotenv_overlays(tmp_path, monkeypatch):
+    home = tmp_path / "isolated-hermes"
+    home.mkdir()
+    user_env = home / ".env"
+    project_env = tmp_path / ".env"
+    user_env.write_text("OPENCODE_GO_API_KEY=user-file-key\n", encoding="utf-8")
+    project_env.write_text("OPENCODE_GO_API_KEY=project-file-key\n", encoding="utf-8")
+    injected = "paperclip-selected-key"
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", injected)
+    monkeypatch.setenv("HERMES_POLICY_PINNED_ROUTE", "1")
+
+    loaded = load_hermes_dotenv(hermes_home=home, project_env=project_env)
+
+    assert loaded == []
+    assert os.environ["OPENCODE_GO_API_KEY"] == injected
+
+
 def test_project_env_is_sanitized_before_loading(tmp_path, monkeypatch):
     home = tmp_path / "hermes"
     project_env = tmp_path / ".env"

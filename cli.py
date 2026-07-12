@@ -175,7 +175,7 @@ from hermes_cli.browser_connect import (
     try_launch_chrome_debug,
 )
 from hermes_cli.env_loader import load_hermes_dotenv
-from utils import base_url_host_matches, fast_safe_load
+from utils import base_url_host_matches, env_var_enabled, fast_safe_load
 
 _hermes_home = get_hermes_home()
 _project_env = Path(__file__).parent / '.env'
@@ -3693,8 +3693,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         verbose: Optional[bool] = None,
         compact: bool = False,
         resume: str = None,
+        session_id: str = None,
         checkpoints: bool = False,
         pass_session_id: bool = False,
+        disable_fallback_model: bool = False,
         ignore_rules: bool = False,
     ):
         """
@@ -3710,7 +3712,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             verbose: Enable verbose logging
             compact: Use compact display mode
             resume: Session ID to resume (restores conversation history from SQLite)
+            session_id: Explicit ID for a new session (automation only)
             pass_session_id: Include the session ID in the agent's system prompt
+            disable_fallback_model: Prevent all automatic model/provider fallback
         """
         # Initialize Rich console
         self.console = Console()
@@ -3950,7 +3954,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # Fallback provider chain — tried in order when primary fails after retries.
         # Merge new ``fallback_providers`` entries with any legacy
         # ``fallback_model`` entries so old configs still participate.
-        self._fallback_model = get_fallback_chain(CLI_CONFIG)
+        self._disable_fallback_model = bool(disable_fallback_model) or env_var_enabled(
+            "HERMES_DISABLE_FALLBACK_MODEL"
+        )
+        self._fallback_model = (
+            [] if self._disable_fallback_model else get_fallback_chain(CLI_CONFIG)
+        )
 
         # Signature of the currently-initialised agent's runtime.  Used to
         # rebuild the agent when provider / model / base_url changes across
@@ -4020,9 +4029,22 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._pending_title: Optional[str] = None
         
         # Session ID: reuse existing one when resuming, otherwise generate fresh
+        if resume and session_id is not None:
+            raise ValueError("session_id creates a new session and cannot be combined with resume")
         if resume:
             self.session_id = resume
             self._resumed = True
+        elif session_id is not None:
+            normalized_session_id = str(session_id).strip()
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", normalized_session_id):
+                raise ValueError(
+                    "session_id must be 1-128 characters using only letters, digits, '.', '_' or '-'"
+                )
+            if self._session_db and self._session_db.get_session(normalized_session_id):
+                raise ValueError(
+                    f"session_id already exists: {normalized_session_id}; use --resume instead"
+                )
+            self.session_id = normalized_session_id
         else:
             timestamp_str = self.session_start.strftime("%Y%m%d_%H%M%S")
             short_uuid = uuid.uuid4().hex[:6]
@@ -6761,10 +6783,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         from agent.azure_identity_adapter import is_token_provider
         if is_token_provider(self.api_key):
             api_key_display = "Microsoft Entra ID"
-        elif isinstance(self.api_key, str) and len(self.api_key) > 12:
-            api_key_display = f"{self.api_key[:8]}...{self.api_key[-4:]}"
+        elif isinstance(self.api_key, str) and self.api_key:
+            api_key_display = "(configured)"
         else:
-            api_key_display = "Not set!"
+            api_key_display = "(not set)"
         
         print()
         title = "(^_^) Configuration"
@@ -15780,10 +15802,12 @@ def main(
     list_toolsets: bool = False,
     gateway: bool = False,
     resume: str = None,
+    session_id: str = None,
     worktree: bool = False,
     w: bool = False,
     checkpoints: bool = False,
     pass_session_id: bool = False,
+    disable_fallback_model: bool = False,
     ignore_user_config: bool = False,
     ignore_rules: bool = False,
 ):
@@ -15806,6 +15830,7 @@ def main(
         list_tools: List available tools and exit
         list_toolsets: List available toolsets and exit
         resume: Resume a previous session by its ID (e.g., 20260225_143052_a1b2c3)
+        session_id: Explicit ID for a new session (automation only)
         worktree: Run in an isolated git worktree (for parallel agents). Alias: -w
         w: Shorthand for --worktree
     
@@ -15918,8 +15943,10 @@ def main(
         verbose=verbose,
         compact=compact,
         resume=resume,
+        session_id=session_id,
         checkpoints=checkpoints,
         pass_session_id=pass_session_id,
+        disable_fallback_model=disable_fallback_model,
         ignore_rules=ignore_rules,
     )
 

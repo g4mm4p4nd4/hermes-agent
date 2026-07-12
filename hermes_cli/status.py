@@ -30,15 +30,15 @@ def check_mark(ok: bool) -> str:
     return color("✗", Colors.RED)
 
 def redact_key(key: str) -> str:
-    """Redact an API key for display.
+    """Return a zero-fragment credential status label.
 
-    Thin wrapper over :func:`agent.redact.mask_secret`. Preserves the
-    "(not set)" placeholder in dim color to match ``hermes config``'s
-    output (previously this variant was missing the DIM color —
-    consolidated via PR that also introduced ``mask_secret``).
+    ``hermes status`` output is routinely pasted into issues and operational
+    receipts.  Unlike interactive credential pickers, it must never reveal
+    even a prefix or suffix: fragments are still credential material and can
+    help correlate or identify a key.  ``--all`` only expands diagnostics; it
+    never changes this representation.
     """
-    from agent.redact import mask_secret
-    return mask_secret(key, empty=color("(not set)", Colors.DIM))
+    return color("(configured)" if key else "(not set)", Colors.DIM)
 
 
 def _format_iso_timestamp(value) -> str:
@@ -177,6 +177,9 @@ def show_status(args):
             continue
         value = _resolve_env(env_ref)
         has_key = bool(value)
+        # ``status --all`` may expand diagnostic sections, but it must never
+        # change credential rendering.  Status output is routinely attached to
+        # issues and support logs, so every secret remains masked in every mode.
         display = redact_key(value)
         print(f"  {name:<12}  {check_mark(has_key)} {display}")
 

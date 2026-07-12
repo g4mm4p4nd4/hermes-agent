@@ -811,7 +811,6 @@ CREATE TABLE IF NOT EXISTS compression_locks (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source);
 CREATE INDEX IF NOT EXISTS idx_sessions_source_id ON sessions(source, id);
-CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_compression_locks_expires ON compression_locks(expires_at);
@@ -824,6 +823,8 @@ CREATE INDEX IF NOT EXISTS idx_session_model_usage_model ON session_model_usage(
 # existing databases. SCHEMA_SQL above is run by sqlite executescript
 # which would otherwise fail on legacy DBs ("no such column: active").
 DEFERRED_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_sessions_parent
+    ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_active
     ON messages(session_id, active, timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_active_null
@@ -1403,8 +1404,8 @@ class SessionDB:
         except sqlite3.OperationalError as exc:
             logger.debug("idx_messages_platform_msg_id create skipped: %s", exc)
 
-        # Deferred indexes that reference the reconciler-added ``active``
-        # column (idx_messages_session_active) — same ordering constraint.
+        # Deferred indexes that reference reconciler-added columns — creating
+        # them in SCHEMA_SQL makes the initial executescript fail on legacy DBs.
         cursor.executescript(DEFERRED_INDEX_SQL)
 
         # Heal NULL ``active`` rows unconditionally on every startup.

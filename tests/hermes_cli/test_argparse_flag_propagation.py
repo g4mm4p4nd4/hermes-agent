@@ -288,6 +288,26 @@ class TestChatSubparserInheritedValueFlags:
         assert args.model == "anthropic/claude-sonnet-4"
         assert args.provider == "openrouter"
 
+    @pytest.mark.parametrize("position", ["before", "after"])
+    def test_explicit_session_id_is_preserved(self, real_parser, position):
+        argv = (
+            ["--session-id", "paperclip-run-1", "chat"]
+            if position == "before"
+            else ["chat", "--session-id", "paperclip-run-1"]
+        )
+        args = real_parser.parse_args(argv)
+        assert args.session_id == "paperclip-run-1"
+
+    @pytest.mark.parametrize("position", ["before", "after"])
+    def test_disable_fallback_model_is_preserved(self, real_parser, position):
+        argv = (
+            ["--disable-fallback-model", "chat"]
+            if position == "before"
+            else ["chat", "--disable-fallback-model"]
+        )
+        args = real_parser.parse_args(argv)
+        assert args.disable_fallback_model is True
+
     @pytest.mark.parametrize("flag,attr", [
         ("--tui", "tui"),
         ("--cli", "cli"),
@@ -337,3 +357,29 @@ class TestChatSubparserInheritedValueFlags:
             + "\n  ".join(f"{opts} dest={dest} default={d!r}"
                           for opts, dest, d in offenders)
         )
+
+
+class TestAutomationSessionFlagValidation:
+    def test_session_id_cannot_be_combined_with_resume(self, monkeypatch):
+        from hermes_cli import main as main_mod
+        from hermes_cli._parser import build_top_level_parser
+
+        parser, _subparsers, _chat = build_top_level_parser()
+        args = parser.parse_args(
+            ["chat", "--session-id", "new-run", "--resume", "old-run"]
+        )
+        monkeypatch.setattr(main_mod, "_resolve_use_tui", lambda _args: False)
+        with pytest.raises(SystemExit) as exc:
+            main_mod.cmd_chat(args)
+        assert exc.value.code == 2
+
+    def test_session_id_fails_closed_for_tui(self, monkeypatch):
+        from hermes_cli import main as main_mod
+        from hermes_cli._parser import build_top_level_parser
+
+        parser, _subparsers, _chat = build_top_level_parser()
+        args = parser.parse_args(["chat", "--session-id", "new-run", "--tui"])
+        monkeypatch.setattr(main_mod, "_resolve_use_tui", lambda _args: True)
+        with pytest.raises(SystemExit) as exc:
+            main_mod.cmd_chat(args)
+        assert exc.value.code == 2

@@ -24,9 +24,11 @@ hermes [global-options] <command> [subcommand/options]
 | `--profile <name>`, `-p <name>` | Select which Hermes profile to use for this invocation. Overrides the sticky default set by `hermes profile use`. |
 | `--resume <session>`, `-r <session>` | Resume a previous session by ID or title. |
 | `--continue [name]`, `-c [name]` | Resume the most recent session, or the most recent session matching a title. |
+| `--session-id <id>` | Create a new classic-CLI session with an explicit automation-safe ID. Cannot be combined with `--resume` or `--continue`. |
 | `--worktree`, `-w` | Start in an isolated git worktree for parallel-agent workflows. |
 | `--yolo` | Bypass dangerous-command approval prompts. |
 | `--pass-session-id` | Include the session ID in the agent's system prompt. |
+| `--disable-fallback-model` | Disable automatic model/provider fallback for this invocation. Use when an external policy owns routing. |
 | `--ignore-user-config` | Ignore `~/.hermes/config.yaml` and fall back to built-in defaults. Credentials in `.env` are still loaded. |
 | `--ignore-rules` | Skip auto-injection of `AGENTS.md`, `SOUL.md`, `.cursorrules`, memory, and preloaded skills. |
 | `--tui` | Launch the [TUI](../user-guide/tui.md) instead of the classic CLI. Equivalent to `HERMES_TUI=1`. Always wins over `display.interface`. |
@@ -111,10 +113,12 @@ Common options:
 | `-Q`, `--quiet` | Programmatic mode: suppress banner/spinner/tool previews. |
 | `--image <path>` | Attach a local image to a single query. |
 | `--resume <session>` / `--continue [name]` | Resume a session directly from `chat`. |
+| `--session-id <id>` | Create a fresh classic-CLI session with a caller-supplied ID. IDs are 1-128 characters using letters, digits, `.`, `_`, or `-`; the ID must not already exist. |
 | `--worktree` | Create an isolated git worktree for this run. |
 | `--checkpoints` | Enable filesystem checkpoints before destructive file changes. |
 | `--yolo` | Skip approval prompts. |
 | `--pass-session-id` | Pass the session ID into the system prompt. |
+| `--disable-fallback-model` | Keep the selected provider/model fixed by disabling Hermes' fallback chain for this invocation. |
 | `--ignore-user-config` | Ignore `~/.hermes/config.yaml` and use built-in defaults. Credentials in `.env` are still loaded. Useful for isolated CI runs, reproducible bug reports, and third-party integrations. |
 | `--ignore-rules` | Skip auto-injection of `AGENTS.md`, `SOUL.md`, `.cursorrules`, persistent memory, and preloaded skills. Combine with `--ignore-user-config` for a fully isolated run. |
 | `--safe-mode` | Troubleshooting mode: disable ALL customizations — user config, rules/memory injection, plugins, shell hooks, and MCP servers (implies `--ignore-user-config` and `--ignore-rules`). Use to isolate whether a problem comes from your setup or from Hermes itself. |
@@ -129,9 +133,29 @@ hermes chat -q "Summarize the latest PRs"
 hermes chat --provider openrouter --model anthropic/claude-sonnet-4.6
 hermes chat --toolsets web,terminal,skills
 hermes chat --quiet -q "Return only JSON"
+hermes chat --quiet --session-id policy-run-42 --disable-fallback-model --provider openrouter --model openai/gpt-5 -q "Run the bounded task"
 hermes chat --worktree -q "Review this repo and open a PR"
 hermes chat --ignore-user-config --ignore-rules -q "Repro without my personal setup"
 hermes chat --safe-mode -q "Is this bug mine or Hermes'?"
+```
+
+### Bounded automation runs
+
+External orchestrators can combine `--session-id` and
+`--disable-fallback-model` to create a fresh, route-pinned transcript without
+mutating user configuration. The classic CLI rejects an existing or malformed
+session ID and rejects any attempt to combine a new ID with resume semantics.
+
+Tool-result replay can be capped per process with positive integer environment
+overrides. Invalid values fall back to `config.yaml` rather than disabling
+truncation:
+
+```bash
+HERMES_TOOL_OUTPUT_MAX_BYTES=16000 \
+HERMES_TOOL_OUTPUT_MAX_LINES=320 \
+HERMES_TOOL_OUTPUT_MAX_LINE_LENGTH=1000 \
+  hermes chat --quiet --session-id bounded-run --disable-fallback-model \
+  -q "Complete the assigned task"
 ```
 
 ### `hermes -z <prompt>` — scripted one-shot

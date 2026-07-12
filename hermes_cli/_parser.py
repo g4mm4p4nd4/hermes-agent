@@ -161,6 +161,12 @@ def build_top_level_parser():
         help="Resume a previous session by ID or title",
     )
     parser.add_argument(
+        "--session-id",
+        metavar="SESSION_ID",
+        default=None,
+        help="Use an explicit ID for a new session (automation; cannot be combined with --resume/--continue)",
+    )
+    parser.add_argument(
         "--continue",
         "-c",
         dest="continue_last",
@@ -210,6 +216,13 @@ def build_top_level_parser():
         action="store_true",
         default=False,
         help="Include the session ID in the agent's system prompt",
+    )
+    _inherited_flag(
+        parser,
+        "--disable-fallback-model",
+        action="store_true",
+        default=False,
+        help="Disable Hermes model/provider fallback for this invocation",
     )
     _inherited_flag(
         parser,
@@ -332,6 +345,12 @@ def build_top_level_parser():
         help="Resume a previous session by ID (shown on exit)",
     )
     chat_parser.add_argument(
+        "--session-id",
+        metavar="SESSION_ID",
+        default=argparse.SUPPRESS,
+        help="Use an explicit ID for a new session (automation; cannot be combined with --resume/--continue)",
+    )
+    chat_parser.add_argument(
         "--continue",
         "-c",
         dest="continue_last",
@@ -385,6 +404,13 @@ def build_top_level_parser():
         action="store_true",
         default=argparse.SUPPRESS,
         help="Include the session ID in the agent's system prompt",
+    )
+    _inherited_flag(
+        chat_parser,
+        "--disable-fallback-model",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Disable Hermes model/provider fallback for this invocation",
     )
     _inherited_flag(
         chat_parser,

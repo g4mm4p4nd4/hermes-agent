@@ -2706,6 +2706,49 @@ def _normalize_main_runtime(main_runtime: Optional[Dict[str, Any]]) -> Dict[str,
     return normalized
 
 
+class AuxiliaryCapabilityMismatchError(RuntimeError):
+    """The policy-pinned main route cannot serve an auxiliary request."""
+
+    error_code = "provider_capability_mismatch"
+
+
+def _policy_pinned_auxiliary_mode() -> bool:
+    """Whether an external policy owns every model route in this process."""
+    for name in ("HERMES_POLICY_PINNED_ROUTE", "HERMES_DISABLE_FALLBACK_MODEL"):
+        if os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
+def _policy_pinned_main_runtime(
+    main_runtime: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return the exact live route that auxiliary calls must inherit.
+
+    In policy-owned mode, per-task provider/model overrides and every auto
+    discovery chain are forbidden. The process-local runtime set by the main
+    AIAgent is authoritative; a supplied ``main_runtime`` fills the same
+    fields for direct callers and tests.
+    """
+    runtime = _normalize_main_runtime(main_runtime)
+    runtime.setdefault("provider", (_RUNTIME_MAIN_PROVIDER or "").strip().lower())
+    runtime.setdefault("model", (_RUNTIME_MAIN_MODEL or "").strip())
+    runtime.setdefault("base_url", (_RUNTIME_MAIN_BASE_URL or "").strip())
+    if "api_key" not in runtime and _RUNTIME_MAIN_API_KEY:
+        runtime["api_key"] = _RUNTIME_MAIN_API_KEY
+    runtime.setdefault("api_mode", (_RUNTIME_MAIN_API_MODE or "").strip())
+    provider = str(runtime.get("provider") or "").strip().lower()
+    model = str(runtime.get("model") or "").strip()
+    if provider in {"", "auto", "main"} or not model:
+        raise AuxiliaryCapabilityMismatchError(
+            "Policy-pinned auxiliary routing requires the live main provider and model; "
+            "auto discovery and fallback are disabled."
+        )
+    runtime["provider"] = provider
+    runtime["model"] = model
+    return runtime
+
+
 def _get_provider_chain() -> List[tuple]:
     """Return the ordered provider detection chain.
 
@@ -4254,6 +4297,12 @@ def _resolve_auto(
                             main_provider, resolved or main_model)
                 return client, resolved or main_model
 
+    if _policy_pinned_auxiliary_mode():
+        raise AuxiliaryCapabilityMismatchError(
+            "The policy-pinned main provider/model is unavailable for auxiliary "
+            f"task {task or 'call'}; auto discovery and fallback are disabled."
+        )
+
     # ── Step 2: user-configured fallback policy ─────────────────────────
     # In auto mode, respect the task-specific fallback chain first, then the
     # main agent's top-level fallback_providers/fallback_model chain. The
@@ -5283,9 +5332,18 @@ def resolve_vision_provider_client(
     backends, so users can intentionally force experimental providers. Auto mode
     stays conservative and only tries vision backends known to work today.
     """
+    pinned_runtime = None
+    if _policy_pinned_auxiliary_mode():
+        pinned_runtime = _policy_pinned_main_runtime()
+        provider = pinned_runtime["provider"]
+        model = pinned_runtime["model"]
+        base_url = str(pinned_runtime.get("base_url") or "") or None
+        api_key = pinned_runtime.get("api_key") or None
     requested, resolved_model, resolved_base_url, resolved_api_key, resolved_api_mode = _resolve_task_provider_model(
         "vision", provider, model, base_url, api_key
     )
+    if pinned_runtime is not None:
+        resolved_api_mode = str(pinned_runtime.get("api_mode") or "") or None
     requested = _normalize_vision_provider(requested)
 
     def _finalize(resolved_provider: str, sync_client: Any, default_model: Optional[str]):
@@ -6442,8 +6500,17 @@ def call_llm(
     """
     resolved_provider, resolved_model, resolved_base_url, resolved_api_key, resolved_api_mode = _resolve_task_provider_model(
         task, provider, model, base_url, api_key)
+    policy_pinned = _policy_pinned_auxiliary_mode()
+    if policy_pinned:
+        pinned = _policy_pinned_main_runtime(main_runtime)
+        resolved_provider = pinned["provider"]
+        resolved_model = pinned["model"]
+        resolved_base_url = str(pinned.get("base_url") or "") or None
+        resolved_api_key = pinned.get("api_key") or None
+        resolved_api_mode = str(pinned.get("api_mode") or "") or None
     if api_mode:
-        resolved_api_mode = api_mode
+        if not policy_pinned:
+            resolved_api_mode = api_mode
     effective_extra_body = _get_task_extra_body(task)
     effective_extra_body.update(extra_body or {})
 
@@ -6455,7 +6522,8 @@ def call_llm(
             api_key=resolved_api_key or api_key,
             async_mode=False,
         )
-        if client is None and resolved_provider != "auto" and not resolved_base_url:
+        if (client is None and resolved_provider != "auto" and not resolved_base_url
+                and not policy_pinned):
             logger.warning(
                 "Vision provider %s unavailable, falling back to auto vision backends",
                 resolved_provider,
@@ -6466,6 +6534,11 @@ def call_llm(
                 async_mode=False,
             )
         if client is None:
+            if policy_pinned:
+                raise AuxiliaryCapabilityMismatchError(
+                    f"Policy-pinned provider/model {resolved_provider}/{resolved_model} "
+                    f"cannot serve auxiliary task {task or 'vision'}."
+                )
             raise RuntimeError(
                 f"No LLM provider configured for task={task} provider={resolved_provider}. "
                 f"Run: hermes setup"
@@ -6481,6 +6554,11 @@ def call_llm(
             main_runtime=main_runtime,
         )
         if client is None:
+            if policy_pinned:
+                raise AuxiliaryCapabilityMismatchError(
+                    f"Policy-pinned provider/model {resolved_provider}/{resolved_model} "
+                    f"is unavailable for auxiliary task {task or 'call'}."
+                )
             # When the user explicitly chose a non-OpenRouter provider but no
             # credentials were found, honor the task fallback_chain before
             # raising.  Missing raw env keys are recoverable for auxiliary
@@ -6894,7 +6972,15 @@ def call_llm(
             or _is_model_incompatible_error(first_err)
             or _is_invalid_aux_response_error(first_err)
         )
-        if should_fallback and (is_auto or is_capacity_error):
+        if policy_pinned and (
+            _is_model_incompatible_error(first_err)
+            or _is_invalid_aux_response_error(first_err)
+        ):
+            raise AuxiliaryCapabilityMismatchError(
+                f"Policy-pinned provider/model {resolved_provider}/{final_model} "
+                f"cannot serve auxiliary task {task or 'call'}."
+            ) from first_err
+        if should_fallback and (is_auto or is_capacity_error) and not policy_pinned:
             if _is_auth_error(first_err):
                 reason = "auth error"
             elif _is_payment_error(first_err):
@@ -7061,6 +7147,14 @@ async def async_call_llm(
     """
     resolved_provider, resolved_model, resolved_base_url, resolved_api_key, resolved_api_mode = _resolve_task_provider_model(
         task, provider, model, base_url, api_key)
+    policy_pinned = _policy_pinned_auxiliary_mode()
+    if policy_pinned:
+        pinned = _policy_pinned_main_runtime(main_runtime)
+        resolved_provider = pinned["provider"]
+        resolved_model = pinned["model"]
+        resolved_base_url = str(pinned.get("base_url") or "") or None
+        resolved_api_key = pinned.get("api_key") or None
+        resolved_api_mode = str(pinned.get("api_mode") or "") or None
     effective_extra_body = _get_task_extra_body(task)
     effective_extra_body.update(extra_body or {})
 
@@ -7072,7 +7166,8 @@ async def async_call_llm(
             api_key=resolved_api_key or api_key,
             async_mode=True,
         )
-        if client is None and resolved_provider != "auto" and not resolved_base_url:
+        if (client is None and resolved_provider != "auto" and not resolved_base_url
+                and not policy_pinned):
             logger.warning(
                 "Vision provider %s unavailable, falling back to auto vision backends",
                 resolved_provider,
@@ -7083,6 +7178,11 @@ async def async_call_llm(
                 async_mode=True,
             )
         if client is None:
+            if policy_pinned:
+                raise AuxiliaryCapabilityMismatchError(
+                    f"Policy-pinned provider/model {resolved_provider}/{resolved_model} "
+                    f"cannot serve auxiliary task {task or 'vision'}."
+                )
             raise RuntimeError(
                 f"No LLM provider configured for task={task} provider={resolved_provider}. "
                 f"Run: hermes setup"
@@ -7098,6 +7198,11 @@ async def async_call_llm(
             api_mode=resolved_api_mode,
         )
         if client is None:
+            if policy_pinned:
+                raise AuxiliaryCapabilityMismatchError(
+                    f"Policy-pinned provider/model {resolved_provider}/{resolved_model} "
+                    f"is unavailable for auxiliary task {task or 'call'}."
+                )
             _explicit = (resolved_provider or "").strip().lower()
             if _explicit and _explicit not in {"auto", "openrouter", "custom"}:
                 fb_client, fb_model, fb_label = _try_configured_fallback_for_unavailable_client(
@@ -7403,7 +7508,15 @@ async def async_call_llm(
             or _is_model_incompatible_error(first_err)
             or _is_invalid_aux_response_error(first_err)
         )
-        if should_fallback and (is_auto or is_capacity_error):
+        if policy_pinned and (
+            _is_model_incompatible_error(first_err)
+            or _is_invalid_aux_response_error(first_err)
+        ):
+            raise AuxiliaryCapabilityMismatchError(
+                f"Policy-pinned provider/model {resolved_provider}/{final_model} "
+                f"cannot serve auxiliary task {task or 'call'}."
+            ) from first_err
+        if should_fallback and (is_auto or is_capacity_error) and not policy_pinned:
             if _is_auth_error(first_err):
                 reason = "auth error"
             elif _is_payment_error(first_err):

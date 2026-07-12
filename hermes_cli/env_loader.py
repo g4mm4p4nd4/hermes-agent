@@ -229,20 +229,31 @@ def load_hermes_dotenv(
     - project `.env` acts as a dev fallback and only fills missing values when
       the user env exists.
     - if no user env exists, the project `.env` also overrides stale shell vars.
+    - `HERMES_DISABLE_PROJECT_DOTENV=1` prevents project `.env` loading.
+    - `HERMES_MANAGED_PROFILE=1` or `HERMES_POLICY_PINNED_ROUTE=1` trusts only
+      the already-injected process environment and disables user/project dotenv,
+      .op.env, external secret sources, and managed-scope overlays.
     """
     loaded: list[Path] = []
+    managed_profile = (
+        os.getenv("HERMES_MANAGED_PROFILE") == "1"
+        or os.getenv("HERMES_POLICY_PINNED_ROUTE") == "1"
+    )
+    disable_project_dotenv = (
+        managed_profile or os.getenv("HERMES_DISABLE_PROJECT_DOTENV") == "1"
+    )
 
     home_path = Path(hermes_home or os.getenv("HERMES_HOME", Path.home() / ".hermes"))
     user_env = home_path / ".env"
     project_env_path = Path(project_env) if project_env else None
 
     # Fix corrupted .env files before python-dotenv parses them (#8908).
-    if user_env.exists():
+    if user_env.exists() and not managed_profile:
         _sanitize_env_file_if_needed(user_env)
-    if project_env_path and project_env_path.exists():
+    if project_env_path and project_env_path.exists() and not disable_project_dotenv:
         _sanitize_env_file_if_needed(project_env_path)
 
-    if user_env.exists():
+    if user_env.exists() and not managed_profile:
         _load_dotenv_with_fallback(user_env, override=True)
         loaded.append(user_env)
 
@@ -257,15 +268,18 @@ def load_hermes_dotenv(
     # in their gateway unit, which takes precedence (override=False below
     # ensures .op.env never clobbers a token already in the environment).
     op_env = home_path / ".op.env"
-    if op_env.exists() and not os.environ.get("OP_SERVICE_ACCOUNT_TOKEN"):
+    if not managed_profile and op_env.exists() and not os.environ.get("OP_SERVICE_ACCOUNT_TOKEN"):
         _load_dotenv_with_fallback(op_env, override=False)
 
-    if project_env_path and project_env_path.exists():
+    if project_env_path and project_env_path.exists() and not disable_project_dotenv:
         _load_dotenv_with_fallback(project_env_path, override=not loaded)
         loaded.append(project_env_path)
 
-    _apply_external_secret_sources(home_path)
-    _apply_managed_env()
+    if managed_profile:
+        _sanitize_loaded_credentials()
+    else:
+        _apply_external_secret_sources(home_path)
+        _apply_managed_env()
 
     return loaded
 
