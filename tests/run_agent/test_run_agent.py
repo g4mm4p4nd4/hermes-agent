@@ -3655,6 +3655,49 @@ class TestHandleMaxIterations:
         assert len(result) > 0
         assert "summary" in result.lower()
 
+    def test_retries_when_summary_is_only_a_dsml_tool_call(self, agent):
+        tool_only = (
+            "<|tool_calls>"
+            '<|tool_call>{"name":"terminal","arguments":{"command":"pwd"}}'
+            "</|tool_call>"
+            "</|tool_calls>"
+        )
+        agent.client.chat.completions.create.side_effect = [
+            _mock_response(content=tool_only),
+            _mock_response(content="Here is the actual final summary."),
+        ]
+        agent._cached_system_prompt = "You are helpful."
+        messages = [{"role": "user", "content": "do stuff"}]
+
+        result = agent._handle_max_iterations(messages, 60)
+
+        assert result == "Here is the actual final summary."
+        assert agent.client.chat.completions.create.call_count == 2
+        assert messages[-1] == {
+            "role": "assistant",
+            "content": "Here is the actual final summary.",
+        }
+
+    def test_rejects_repeated_tool_only_summaries(self, agent):
+        tool_only = (
+            "<tool_calls>"
+            '<tool_call>{"name":"terminal","arguments":{"command":"pwd"}}'
+            "</tool_call>"
+            "</tool_calls>"
+        )
+        agent.client.chat.completions.create.side_effect = [
+            _mock_response(content=tool_only),
+            _mock_response(content=f"<think>still trying</think>\n{tool_only}"),
+        ]
+        agent._cached_system_prompt = "You are helpful."
+        messages = [{"role": "user", "content": "do stuff"}]
+
+        result = agent._handle_max_iterations(messages, 60)
+
+        assert result == "I reached the iteration limit and couldn't generate a summary."
+        assert agent.client.chat.completions.create.call_count == 2
+        assert not any(message.get("role") == "assistant" for message in messages)
+
     def test_api_failure_returns_error(self, agent):
         agent.client.chat.completions.create.side_effect = Exception("API down")
         agent._cached_system_prompt = "You are helpful."
