@@ -535,6 +535,19 @@ class _ManagedRotatingFileHandler(RotatingFileHandler):
         super().handleError(record)
 
     def _open(self):
+        # A long-lived QueueListener can outlive an isolated test/profile
+        # directory. Recreate the private log directory before reopening so
+        # one deleted HERMES_HOME cannot poison every later logging call in
+        # the process. Apply restrictive permissions only when we created the
+        # directory; never rewrite permissions on an existing user path.
+        parent = Path(self.baseFilename).parent
+        if not parent.is_dir():
+            directory_mode = 0o2770 if self._managed else 0o700
+            parent.mkdir(parents=True, exist_ok=True, mode=directory_mode)
+            try:
+                os.chmod(parent, directory_mode)
+            except OSError:
+                pass
         stream = super()._open()
         self._chmod_if_managed()
         return stream

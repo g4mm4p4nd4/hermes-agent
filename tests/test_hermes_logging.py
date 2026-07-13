@@ -2,6 +2,7 @@
 import io
 import logging
 import os
+import shutil
 import stat
 import sys
 import threading
@@ -981,6 +982,23 @@ class TestExternalRotationRecovery:
             self._emit(handler, "after unlink")
             assert log_path.exists()
             assert log_path.read_text() == "after unlink\n"
+        finally:
+            handler.close()
+
+    def test_recovers_after_profile_directory_is_removed(self, tmp_path):
+        """A queued handler recreates a deleted isolated profile safely."""
+        log_path = tmp_path / "profile" / "logs" / "gateway.log"
+        log_path.parent.mkdir(parents=True)
+        handler = self._make_handler(log_path)
+        try:
+            self._emit(handler, "before profile cleanup")
+            shutil.rmtree(tmp_path / "profile")
+
+            self._emit(handler, "after profile cleanup")
+
+            assert log_path.read_text() == "after profile cleanup\n"
+            if os.name != "nt":
+                assert stat.S_IMODE(log_path.parent.stat().st_mode) == 0o700
         finally:
             handler.close()
 
