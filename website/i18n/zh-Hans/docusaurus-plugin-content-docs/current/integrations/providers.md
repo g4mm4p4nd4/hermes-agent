@@ -985,9 +985,20 @@ model:
 
 [LiteLLM](https://docs.litellm.ai/) 是一个 OpenAI 兼容代理，将 100+ LLM 提供商统一在单一 API 后面。最适合：无需更改配置即可切换提供商、负载均衡、故障转移链、预算控制。
 
+:::warning 部署和路由边界
+在 2026 年 3 月的供应链安全事件之后，Hermes 已移除进程内 LiteLLM
+Python 依赖。如果选择 LiteLLM，请将经过审查且固定版本的 LiteLLM
+作为独立代理运行，并把它的 URL 视为一个自定义提供商端点。
+
+下面的故障转移示例仅适用于用户自行管理的 Hermes 会话。当 Paperclip
+等外部编排器负责提供商选择、重试、成本策略和回执时，不要再配置第二套
+LiteLLM 故障转移链。编排器应解析唯一的路由，把该端点和模型传给已禁用
+内部故障转移的 Hermes，并由编排器处理失败。否则回执中的提供商身份和
+成本可能与已批准的路由不一致。
+:::
+
 ```bash
-# 安装并启动
-pip install "litellm[proxy]"
+# 使用经过审查并由部署锁文件固定的版本安装后：
 litellm --model anthropic/claude-sonnet-4 --port 4000
 
 # 或使用配置文件支持多个模型：
@@ -1294,7 +1305,7 @@ model:
 | **本地模型，简单配置** | Ollama |
 | **生产 GPU 服务** | vLLM 或 SGLang |
 | **Mac / 无 GPU** | Ollama 或 llama.cpp |
-| **多提供商路由** | LiteLLM Proxy 或 OpenRouter |
+| **用户管理的多提供商路由** | 独立运行的 LiteLLM Proxy 或 OpenRouter |
 | **成本优化** | ClawRouter 或带 `sort: "price"` 的 OpenRouter |
 | **最大隐私保护** | Ollama、vLLM 或 llama.cpp（完全本地） |
 | **企业 / Azure** | Azure OpenAI 加自定义端点 |

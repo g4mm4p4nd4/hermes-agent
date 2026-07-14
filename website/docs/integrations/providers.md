@@ -1041,9 +1041,22 @@ model:
 
 [LiteLLM](https://docs.litellm.ai/) is an OpenAI-compatible proxy that unifies 100+ LLM providers behind a single API. Best for: switching between providers without config changes, load balancing, fallback chains, budget controls.
 
+:::warning Deployment and routing boundary
+Hermes removed the in-process LiteLLM Python dependency after the March 2026
+supply-chain compromise. If you choose LiteLLM, run a reviewed, pinned version
+as a separate proxy and treat its URL as one custom provider endpoint.
+
+The fallback example below is for user-managed Hermes sessions. When an
+external orchestrator such as Paperclip owns provider selection, retries, cost
+policy, and receipts, do not configure a second LiteLLM fallback chain. Resolve
+one route in the orchestrator, pass that exact endpoint/model to Hermes with
+internal fallback disabled, and return failures to the orchestrator. Otherwise
+the provider identity and cost in the run receipt can diverge from the route
+that was approved.
+:::
+
 ```bash
-# Install and start
-pip install "litellm[proxy]"
+# After installing a reviewed version from your pinned deployment lockfile:
 litellm --model anthropic/claude-sonnet-4 --port 4000
 
 # Or with a config file for multiple models:
@@ -1370,7 +1383,7 @@ model:
 | **Local models, easy setup** | Ollama |
 | **Production GPU serving** | vLLM or SGLang |
 | **Mac / no GPU** | Ollama or llama.cpp |
-| **Multi-provider routing** | LiteLLM Proxy or OpenRouter |
+| **User-managed multi-provider routing** | Separately operated LiteLLM Proxy or OpenRouter |
 | **Cost optimization** | ClawRouter or OpenRouter with `sort: "price"` |
 | **Maximum privacy** | Ollama, vLLM, or llama.cpp (fully local) |
 | **Enterprise / Azure** | Azure OpenAI with custom endpoint |
