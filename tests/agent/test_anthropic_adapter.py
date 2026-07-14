@@ -33,6 +33,21 @@ from agent.transports import get_transport
 # Auth helpers
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def no_claude_keychain(monkeypatch):
+    """Keep resolver tests independent of the developer's macOS Keychain.
+
+    ``Path.home`` isolation only relocates Claude's JSON credential file; the
+    macOS Keychain lookup is a separate OS-level source.  Resolver tests that
+    exercise explicit env/file/pool precedence must disable that ambient
+    source or a locally authenticated Claude session changes their result.
+    Dedicated Keychain tests patch the subprocess boundary directly.
+    """
+    monkeypatch.setattr(
+        "agent.anthropic_adapter._read_claude_code_credentials_from_keychain",
+        lambda: None,
+    )
+
 
 class TestIsOAuthToken:
     def test_setup_token(self):
@@ -224,13 +239,8 @@ class TestBuildAnthropicClient:
             assert kwargs["max_retries"] == 0
 
 
+@pytest.mark.usefixtures("no_claude_keychain")
 class TestReadClaudeCodeCredentials:
-    @pytest.fixture(autouse=True)
-    def no_keychain(self, monkeypatch):
-        monkeypatch.setattr(
-            "agent.anthropic_adapter._read_claude_code_credentials_from_keychain",
-            lambda: None,
-        )
 
     def test_reads_valid_credentials(self, tmp_path, monkeypatch):
         cred_file = tmp_path / ".claude" / ".credentials.json"
@@ -292,6 +302,7 @@ class TestIsClaudeCodeTokenValid:
         assert is_claude_code_token_valid(creds) is True
 
 
+@pytest.mark.usefixtures("no_claude_keychain")
 class TestResolveAnthropicToken:
     def test_prefers_oauth_token_over_api_key(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-mykey")
@@ -610,6 +621,7 @@ class TestWriteClaudeCodeCredentials:
         assert mode == 0o600, f"creds file mode {oct(mode)} != 0o600 — TOCTOU race regressed"
 
 
+@pytest.mark.usefixtures("no_claude_keychain")
 class TestResolveWithRefresh:
     def test_auto_refresh_on_expired_creds(self, monkeypatch, tmp_path):
         """When cred file has expired token + refresh token, auto-refresh is attempted."""

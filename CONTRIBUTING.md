@@ -201,13 +201,16 @@ ln -sf "$(pwd)/venv/bin/hermes" ~/.local/bin/hermes
 ### Run tests
 
 ```bash
-# Preferred — matches CI (hermetic env, 4 xdist workers); see AGENTS.md
+# Canonical — matches CI (hermetic env, one fresh process per test file); see AGENTS.md
 scripts/run_tests.sh
-
-# Alternative (activate the venv first). The wrapper is still recommended
-# for parity with GitHub Actions before you open a PR:
-pytest tests/ -v
 ```
+
+Do not use a monolithic `pytest tests/ ...` run as a release gate. Many test
+files intentionally exercise process-global registries, module caches,
+`ContextVar`s, and `sys.modules`; sharing one interpreter across the entire
+suite creates order-dependent failures that CI does not exercise. Direct
+`python -m pytest tests/path/test_file.py ...` remains useful for focused
+debugging, but reconfirm with `scripts/run_tests.sh` before submitting.
 
 ---
 
@@ -943,7 +946,7 @@ refactor/description   # Code restructuring
 
 ### Before submitting
 
-1. **Run tests**: `scripts/run_tests.sh` (recommended; same as CI) or `pytest tests/ -v` with the project venv activated
+1. **Run tests**: `scripts/run_tests.sh` (required for the release gate; same per-file process isolation and hermetic environment as CI)
 2. **Test manually**: Run `hermes` and exercise the code path you changed
 3. **Check cross-platform impact**: If you touch file I/O, process management, or terminal handling, consider macOS, Linux, and WSL2
 4. **Keep PRs focused**: One logical change per PR. Don't mix a bug fix with a refactor with a new feature.
