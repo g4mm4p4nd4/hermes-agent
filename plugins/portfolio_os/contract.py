@@ -25,7 +25,7 @@ DEFAULT_PROVIDER_POLICY_SCHEMA_PATH = Path(
 # Frozen Portfolio-OS/Paperclip trust roots.  Environment variables and task
 # bundles must agree with these values; they are not allowed to redefine them.
 PINNED_PROFIT_FLYWHEEL_CONTRACT_SHA256 = (
-    "4baceddb14f90323bf7d774ab54984cf6fd844f40c7a4e2e99abb4aff8d19906"
+    "9222ed478724c230731ebcced6809ff6b4a4bb7dc934fddb2882ae7c92501723"
 )
 PINNED_PROFIT_FLYWHEEL_CONTRACT_SCHEMA_SHA256 = (
     "6ac1af81be0de807f51dbba786b73897f114244c1616abee5b3f41a6dbfac09b"
